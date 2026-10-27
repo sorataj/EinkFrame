@@ -22,10 +22,18 @@ from inky_photo_frame.photos import PhotoHandler, get_all_photos, load_history
 from inky_photo_frame.buttons import BUTTONS_AVAILABLE, ButtonController
 from inky_photo_frame.welcome import display_welcome
 
-# Display settings (orientation, collage, collage border), written by the web UI
+# Display settings (orientation, collage, collage border, change frequency,
+# sleep window), written by the web UI
 SETTINGS_FILE = Path(PHOTOS_DIR).parent / '.inky_settings.json'
-DEFAULT_SETTINGS = {'orientation': 'landscape', 'flip': False, 'collage': False,
-                    'border_width': 6, 'border_color': '#000000'}
+DEFAULT_SETTINGS = {
+    'orientation': 'landscape', 'flip': False, 'collage': False,
+    'border_width': 6, 'border_color': '#000000',
+    'change_mode': 'interval',
+    'change_interval_minutes': CHANGE_INTERVAL_MINUTES,
+    'daily_change_hour': CHANGE_HOUR,
+    'sleep_start_hour': 0,
+    'sleep_end_hour': 0,
+}
 MAX_BORDER_WIDTH = 20
 
 
@@ -256,6 +264,13 @@ class InkyPhotoFrame:
 
         self.save_history()
 
+    @staticmethod
+    def _int_in_range(value, lo, hi, default):
+        try:
+            return min(hi, max(lo, int(value)))
+        except (TypeError, ValueError):
+            return default
+
     def _read_settings(self):
         """Current display settings from the web UI (defaults if unavailable)."""
         try:
@@ -280,7 +295,32 @@ class InkyPhotoFrame:
                 out['border_color'] = color.lower()
             except ValueError:
                 pass
+
+        if data.get('change_mode') in ('interval', 'daily'):
+            out['change_mode'] = data['change_mode']
+        out['change_interval_minutes'] = self._int_in_range(
+            data.get('change_interval_minutes', out['change_interval_minutes']), 1, 1440,
+            out['change_interval_minutes'])
+        out['daily_change_hour'] = self._int_in_range(
+            data.get('daily_change_hour', out['daily_change_hour']), 0, 23, out['daily_change_hour'])
+        out['sleep_start_hour'] = self._int_in_range(
+            data.get('sleep_start_hour', out['sleep_start_hour']), 0, 23, out['sleep_start_hour'])
+        out['sleep_end_hour'] = self._int_in_range(
+            data.get('sleep_end_hour', out['sleep_end_hour']), 0, 23, out['sleep_end_hour'])
         return out
+
+    @staticmethod
+    def _in_sleep_window(settings, now=None):
+        """True if `now` (default: current time) falls within the configured
+        sleep window [sleep_start_hour, sleep_end_hour). Equal start/end hours
+        means sleep is disabled. Handles windows that wrap past midnight."""
+        start, end = settings['sleep_start_hour'], settings['sleep_end_hour']
+        if start == end:
+            return False
+        hour = (now or datetime.now()).hour
+        if start < end:
+            return start <= hour < end
+        return hour >= start or hour < end  # wraps past midnight
 
     @staticmethod
     def _rotation_for(settings):
@@ -568,13 +608,21 @@ class InkyPhotoFrame:
             logging.error(f'Error saving color mode: {e}')
 
     def should_change_photo(self):
-        """Check if it's time for a photo change
+        """Check if it's time for a photo change.
 
-        Two modes:
-        - CHANGE_INTERVAL_MINUTES = 0: Daily mode, change once at CHANGE_HOUR
-        - CHANGE_INTERVAL_MINUTES > 0: Interval mode, change every N minutes
+        Settings (configurable from the web UI, falling back to config.py
+        defaults) control the behaviour:
+        - change_mode 'interval': change every change_interval_minutes
+        - change_mode 'daily':    change once a day at daily_change_hour
+
+        While the current time is within the configured sleep window, the
+        frame never changes photos (stays frozen) to save battery.
         """
+        settings = self._read_settings()
         now = datetime.now()
+
+        if self._in_sleep_window(settings, now):
+            return False
 
         # Check if we've never changed
         if not self.history['last_change']:
@@ -583,13 +631,12 @@ class InkyPhotoFrame:
         # Parse last change time
         last_change = datetime.fromisoformat(self.history['last_change'])
 
-        if CHANGE_INTERVAL_MINUTES > 0:
-            # Interval mode: change every N minutes
+        if settings['change_mode'] == 'interval':
             elapsed = (now - last_change).total_seconds() / 60
-            return elapsed >= CHANGE_INTERVAL_MINUTES
+            return elapsed >= settings['change_interval_minutes']
         else:
-            # Daily mode: change once at CHANGE_HOUR
-            if now.hour >= CHANGE_HOUR and last_change.date() < now.date():
+            # Daily mode: change once at daily_change_hour
+            if now.hour >= settings['daily_change_hour'] and last_change.date() < now.date():
                 return True
 
         return False

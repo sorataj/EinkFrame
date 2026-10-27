@@ -30,6 +30,7 @@ param(
 $ErrorActionPreference = "Stop"
 $PiHost = "pi@inkyimpression.local"
 $PiInstallDir = "/home/pi/inky-photo-frame"
+$PiWebuiDir = "/home/pi/inky-webui"
 
 function Write-Step($text) {
     Write-Host ""
@@ -61,6 +62,11 @@ try {
 
     Write-Step "Pulling latest changes on Raspberry Pi"
     ssh $PiHost "cd $PiInstallDir && git pull"
+
+    Write-Step "Syncing webui/inky_webui.py to its standalone service folder"
+    # The inky-webui.service runs from /home/pi/inky-webui, which is a separate
+    # copy outside the git repo, so it needs to be refreshed explicitly here.
+    Get-Content "$PSScriptRoot\webui\inky_webui.py" -Raw | ssh $PiHost "cat > $PiWebuiDir/inky_webui.py"
 
     Write-Step "Restarting services on Raspberry Pi"
     ssh $PiHost "sudo systemctl restart inky-photo-frame inky-webui"
