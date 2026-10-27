@@ -53,6 +53,21 @@ THUMB_DIR = Path(os.environ.get('INKY_THUMB_DIR', DATA_DIR / '.inky_thumbs'))
 PORT = int(os.environ.get('INKY_WEB_PORT', '80'))
 PASSWORD = os.environ.get('INKY_WEB_PASSWORD', '')
 
+# Same files used by inky_photo_frame (kept in sync manually since the two
+# services run from separate folders): history is patched when photos are
+# renumbered, and the "show now" file is how this web UI asks the frame to
+# immediately display a specific photo.
+HISTORY_FILE = DATA_DIR / '.inky_history.json'
+SHOW_NOW_FILE = DATA_DIR / '.inky_show_now'
+
+# Display resolution, used client-side for the "locked aspect ratio" crop
+# option. Set INKY_DISPLAY_WIDTH/HEIGHT in inky-webui.service if your frame
+# isn't the 1600x1200 13.3" Spectra panel.
+DISPLAY_WIDTH = int(os.environ.get('INKY_DISPLAY_WIDTH', '1600'))
+DISPLAY_HEIGHT = int(os.environ.get('INKY_DISPLAY_HEIGHT', '1200'))
+
+SEQ_RE = re.compile(r'^(\d{4,})$')
+
 SETTINGS_FILE = DATA_DIR / '.inky_settings.json'   # read by the frame software
 DEFAULT_SETTINGS = {
     'orientation': 'landscape', 'flip': False, 'collage': False,
@@ -100,6 +115,69 @@ def _unique_name(stem, ext):
         n += 1
         name = f'{stem}-{time.strftime("%Y%m%d-%H%M%S")}-{n}{ext}'
     return name
+
+
+def _next_seq_number():
+    """Smallest 4+ digit number not already used as a photo's filename stem."""
+    used = set()
+    for p in PHOTOS_DIR.iterdir():
+        if p.is_file():
+            m = SEQ_RE.match(p.stem)
+            if m:
+                used.add(int(m.group(1)))
+    n = 1
+    while n in used:
+        n += 1
+    return n
+
+
+def _seq_name(n, ext):
+    return f'{n:04d}{ext}'
+
+
+def _patch_history(renames):
+    """Update ~/.inky_history.json so renamed photos keep their place in the
+    frame's rotation (shown/pending/current lists + metadata keys reference
+    the old full paths). renames: dict of {old_name: new_name} (just the
+    filename, not the full path)."""
+    if not renames or not HISTORY_FILE.exists():
+        return
+    try:
+        data = json.loads(HISTORY_FILE.read_text())
+    except (OSError, ValueError):
+        return
+
+    def fix(path_str):
+        if not path_str:
+            return path_str
+        old_name = Path(path_str).name
+        new_name = renames.get(old_name)
+        return str(PHOTOS_DIR / new_name) if new_name else path_str
+
+    data['current'] = fix(data.get('current'))
+    for key in ('shown', 'pending'):
+        data[key] = [fix(p) for p in data.get(key, [])]
+    meta = data.get('photo_metadata', {})
+    new_meta = {}
+    for old_path, info in meta.items():
+        new_meta[fix(old_path)] = info
+    data['photo_metadata'] = new_meta
+    collage = data.get('collage')
+    if isinstance(collage, dict):
+        collage['lead'] = fix(collage.get('lead'))
+        collage['extras'] = [fix(p) for p in collage.get('extras', [])]
+
+    tmp = HISTORY_FILE.with_name(HISTORY_FILE.name + '.tmp')
+    tmp.write_text(json.dumps(data, indent=2))
+    os.replace(tmp, HISTORY_FILE)
+
+
+def _request_show_now(photo_name):
+    """Ask the running frame service to immediately display this photo. The
+    frame polls for this file every ~5 seconds (same mechanism as settings)."""
+    tmp = SHOW_NOW_FILE.with_name(SHOW_NOW_FILE.name + '.tmp')
+    tmp.write_text(str(PHOTOS_DIR / photo_name))
+    os.replace(tmp, SHOW_NOW_FILE)
 
 
 def _human(size):
@@ -332,6 +410,21 @@ PAGE = """<!doctype html>
   .info-box .k { font-size:.75rem; opacity:.65; text-transform:uppercase; letter-spacing:.03em; }
   .row2 { display:flex; gap:14px; flex-wrap:wrap; align-items:flex-end; }
   .row2 > div { display:flex; flex-direction:column; gap:4px; }
+  .item img { cursor:pointer; }
+  .lightbox { position:fixed; inset:0; background:rgba(0,0,0,.85); display:none; align-items:center; justify-content:center; z-index:100; padding:16px; }
+  .lightbox.open { display:flex; }
+  .lb-box { background:var(--card); border-radius:12px; padding:14px; max-width:95vw; max-height:95vh; display:flex; flex-direction:column; gap:10px; }
+  .lb-canvas-wrap { position:relative; max-width:min(90vw,900px); max-height:70vh; overflow:auto; align-self:center; }
+  .lb-canvas-wrap img { display:block; max-width:min(90vw,900px); max-height:70vh; }
+  .lb-crop-box { position:absolute; border:2px dashed #fff; box-shadow:0 0 0 9999px rgba(0,0,0,.45); cursor:move; touch-action:none; }
+  .lb-crop-box .handle { position:absolute; width:14px; height:14px; background:#fff; border:1px solid #333; border-radius:50%; }
+  .lb-crop-box .handle.se { right:-7px; bottom:-7px; cursor:nwse-resize; }
+  .lb-actions { display:flex; gap:8px; flex-wrap:wrap; justify-content:space-between; }
+  .lb-actions .left, .lb-actions .right { display:flex; gap:8px; flex-wrap:wrap; }
+  button.secondary { background:var(--card); color:var(--fg); border:1px solid var(--line); }
+  button.toggle.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .lb-title { font-weight:600; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .lb-head { display:flex; align-items:center; gap:10px; }
 </style></head><body><main>
 <h1>Inky Photo Frame</h1>
 {% if msg %}<div class="msg">{{ msg }}</div>{% endif %}
@@ -353,11 +446,17 @@ PAGE = """<!doctype html>
     <p class="muted" style="margin-bottom:0">New photos are shown on the frame straight away.</p>
   </div>
 
-  <h2 style="font-size:1.1rem">{{ photos|length }} photo{{ '' if photos|length == 1 else 's' }}</h2>
+  <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap">
+    <h2 style="font-size:1.1rem; margin:0">{{ photos|length }} photo{{ '' if photos|length == 1 else 's' }}</h2>
+    <form method="post" action="/renumber" onsubmit="return confirm('Rename every photo to sequential numbers (0001, 0002, ...)? This keeps the current rotation order.')">
+      <button type="submit" class="secondary">Renumber all photos</button>
+    </form>
+  </div>
   <div class="grid">
   {% for p in photos %}
     <div class="item">
-      <img loading="lazy" src="/thumb/{{ p.name|urlencode }}?v={{ p.v }}" alt="{{ p.name }}">
+      <img loading="lazy" src="/thumb/{{ p.name|urlencode }}?v={{ p.v }}" alt="{{ p.name }}"
+           data-name="{{ p.name }}" onclick="openLightbox('{{ p.name|e }}')">
       <div class="meta"><b title="{{ p.name }}">{{ p.name }}</b><span class="muted">{{ p.size }}</span>
         <form method="post" action="/delete/{{ p.name|urlencode }}"
               onsubmit="return confirm('Delete {{ p.name|e }}?')">
@@ -368,6 +467,33 @@ PAGE = """<!doctype html>
   {% else %}
     <p class="muted">No photos yet.</p>
   {% endfor %}
+  </div>
+</div>
+
+<div class="lightbox" id="lightbox">
+  <div class="lb-box">
+    <div class="lb-head">
+      <div class="lb-title" id="lb-title"></div>
+      <button type="button" class="secondary" onclick="closeLightbox()">Close</button>
+    </div>
+    <div class="lb-canvas-wrap" id="lb-wrap">
+      <img id="lb-img" src="" alt="">
+      <div class="lb-crop-box" id="lb-cropbox" style="display:none">
+        <div class="handle se" id="lb-handle"></div>
+      </div>
+    </div>
+    <div id="lb-status" class="muted"></div>
+    <div class="lb-actions">
+      <div class="left">
+        <button type="button" onclick="showOnFrame()">Show on frame now</button>
+        <button type="button" class="secondary" id="lb-crop-toggle" onclick="toggleCropMode()">Crop photo</button>
+      </div>
+      <div class="right" id="lb-crop-controls" style="display:none">
+        <button type="button" class="secondary toggle active" id="lb-free" onclick="setCropAspect(null)">Free-form</button>
+        <button type="button" class="secondary toggle" id="lb-locked" onclick="setCropAspect('locked')">Frame ratio</button>
+        <button type="button" onclick="saveCrop()">Save crop</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -509,6 +635,157 @@ form.addEventListener('submit', e => {
   xhr.onerror = () => { status.textContent = 'Upload failed – check the connection.'; };
   xhr.send(new FormData(form));
 });
+
+// -------------------------------------------------------- lightbox + crop
+let lbName = null, lbMeta = null, lbCropping = false, lbAspect = null;
+let lbBox = { x: 0, y: 0, w: 0, h: 0 };   // in on-screen (displayed image) pixels
+let lbDrag = null;
+
+const lightbox = document.getElementById('lightbox'), lbImg = document.getElementById('lb-img'),
+      lbCropbox = document.getElementById('lb-cropbox'), lbWrap = document.getElementById('lb-wrap'),
+      lbStatus = document.getElementById('lb-status'), lbTitle = document.getElementById('lb-title'),
+      lbCropToggle = document.getElementById('lb-crop-toggle'), lbCropControls = document.getElementById('lb-crop-controls'),
+      lbFreeBtn = document.getElementById('lb-free'), lbLockedBtn = document.getElementById('lb-locked'),
+      lbHandle = document.getElementById('lb-handle');
+
+function openLightbox(name) {
+  lbName = name;
+  lbCropping = false;
+  lbAspect = null;
+  lbStatus.textContent = '';
+  lbTitle.textContent = name;
+  lbCropbox.style.display = 'none';
+  lbCropControls.style.display = 'none';
+  lbCropToggle.textContent = 'Crop photo';
+  lbImg.src = '/full/' + encodeURIComponent(name) + '?v=' + Date.now();
+  lightbox.classList.add('open');
+  fetch('/photo-meta/' + encodeURIComponent(name)).then(r => r.json()).then(m => { lbMeta = m; }).catch(() => { lbMeta = null; });
+}
+
+function closeLightbox() {
+  lightbox.classList.remove('open');
+  lbImg.src = '';
+  lbCropping = false;
+}
+
+function showOnFrame() {
+  if (!lbName) return;
+  lbStatus.textContent = 'Sending to frame…';
+  fetch('/show-now/' + encodeURIComponent(lbName), { method: 'POST' })
+    .then(r => r.json())
+    .then(d => { lbStatus.textContent = d.ok ? 'Now showing on the frame.' : ('Error: ' + (d.error || 'unknown')); })
+    .catch(() => { lbStatus.textContent = 'Request failed.'; });
+}
+
+function toggleCropMode() {
+  lbCropping = !lbCropping;
+  lbCropControls.style.display = lbCropping ? 'flex' : 'none';
+  lbCropToggle.textContent = lbCropping ? 'Cancel crop' : 'Crop photo';
+  if (lbCropping) {
+    const r = lbImg.getBoundingClientRect();
+    lbBox = { x: r.width * 0.1, y: r.height * 0.1, w: r.width * 0.8, h: r.height * 0.8 };
+    if (lbAspect === 'locked') applyAspect();
+    drawCropBox();
+    lbCropbox.style.display = 'block';
+  } else {
+    lbCropbox.style.display = 'none';
+  }
+}
+
+function setCropAspect(mode) {
+  lbAspect = mode;
+  lbFreeBtn.classList.toggle('active', mode === null);
+  lbLockedBtn.classList.toggle('active', mode === 'locked');
+  if (lbCropping) { applyAspect(); drawCropBox(); }
+}
+
+function applyAspect() {
+  if (lbAspect !== 'locked' || !lbMeta) return;
+  const target = lbMeta.display_width / lbMeta.display_height;
+  const cx = lbBox.x + lbBox.w / 2, cy = lbBox.y + lbBox.h / 2;
+  let w = lbBox.w, h = w / target;
+  if (h > lbImg.getBoundingClientRect().height) { h = lbImg.getBoundingClientRect().height * 0.9; w = h * target; }
+  lbBox = { x: cx - w / 2, y: cy - h / 2, w, h };
+}
+
+function drawCropBox() {
+  lbCropbox.style.left = lbBox.x + 'px';
+  lbCropbox.style.top = lbBox.y + 'px';
+  lbCropbox.style.width = lbBox.w + 'px';
+  lbCropbox.style.height = lbBox.h + 'px';
+}
+
+function clampBox() {
+  const maxW = lbImg.clientWidth, maxH = lbImg.clientHeight;
+  lbBox.w = Math.max(20, Math.min(lbBox.w, maxW));
+  lbBox.h = Math.max(20, Math.min(lbBox.h, maxH));
+  lbBox.x = Math.max(0, Math.min(lbBox.x, maxW - lbBox.w));
+  lbBox.y = Math.max(0, Math.min(lbBox.y, maxH - lbBox.h));
+}
+
+function pointerPos(e) {
+  return e.touches && e.touches[0] ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : { x: e.clientX, y: e.clientY };
+}
+
+lbCropbox.addEventListener('mousedown', startDrag('move'));
+lbCropbox.addEventListener('touchstart', startDrag('move'), { passive: true });
+lbHandle.addEventListener('mousedown', e => { e.stopPropagation(); startDrag('resize')(e); });
+lbHandle.addEventListener('touchstart', e => { e.stopPropagation(); startDrag('resize')(e); }, { passive: true });
+
+function startDrag(kind) {
+  return function (e) {
+    const p0 = pointerPos(e);
+    lbDrag = { kind, startX: p0.x, startY: p0.y, box0: { ...lbBox } };
+    document.addEventListener('mousemove', onDrag);
+    document.addEventListener('touchmove', onDrag, { passive: false });
+    document.addEventListener('mouseup', stopDrag);
+    document.addEventListener('touchend', stopDrag);
+  };
+}
+function onDrag(e) {
+  if (!lbDrag) return;
+  e.preventDefault && e.preventDefault();
+  const p = pointerPos(e), dx = p.x - lbDrag.startX, dy = p.y - lbDrag.startY;
+  if (lbDrag.kind === 'move') {
+    lbBox.x = lbDrag.box0.x + dx;
+    lbBox.y = lbDrag.box0.y + dy;
+  } else {
+    let w = lbDrag.box0.w + dx, h = lbDrag.box0.h + dy;
+    if (lbAspect === 'locked' && lbMeta) h = w / (lbMeta.display_width / lbMeta.display_height);
+    lbBox.w = w; lbBox.h = h;
+  }
+  clampBox();
+  drawCropBox();
+}
+function stopDrag() {
+  lbDrag = null;
+  document.removeEventListener('mousemove', onDrag);
+  document.removeEventListener('touchmove', onDrag);
+  document.removeEventListener('mouseup', stopDrag);
+  document.removeEventListener('touchend', stopDrag);
+}
+
+function saveCrop() {
+  if (!lbName || !lbMeta) { lbStatus.textContent = 'Photo info not loaded yet, try again.'; return; }
+  const scaleX = lbMeta.width / lbImg.clientWidth, scaleY = lbMeta.height / lbImg.clientHeight;
+  const payload = {
+    x: Math.round(lbBox.x * scaleX), y: Math.round(lbBox.y * scaleY),
+    w: Math.round(lbBox.w * scaleX), h: Math.round(lbBox.h * scaleY),
+  };
+  lbStatus.textContent = 'Saving crop…';
+  fetch('/crop/' + encodeURIComponent(lbName), {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+  }).then(r => r.json()).then(d => {
+    if (d.ok) {
+      lbStatus.textContent = 'Crop saved.';
+      lbImg.src = '/full/' + encodeURIComponent(lbName) + '?v=' + Date.now();
+      toggleCropMode();
+      setTimeout(() => location.reload(), 600);
+    } else {
+      lbStatus.textContent = 'Error: ' + (d.error || 'unknown');
+    }
+  }).catch(() => { lbStatus.textContent = 'Request failed.'; });
+}
 </script>
 </main></body></html>"""
 
@@ -555,6 +832,7 @@ def apply_settings():
 def upload():
     _ensure_dirs()
     saved, rejected = [], []
+    next_n = _next_seq_number()
     for f in request.files.getlist('photos'):
         original = f.filename or ''
         ext = Path(original).suffix.lower()
@@ -577,10 +855,14 @@ def upload():
             rejected.append(original)
             continue
 
-        stem = secure_filename(Path(original).stem) or 'photo'
-        final = _unique_name(stem, ext)
+        # Sequential numeric filename (0001.jpg, 0002.jpg, ...), extension kept.
+        final = _seq_name(next_n, ext)
+        while (PHOTOS_DIR / final).exists():
+            next_n += 1
+            final = _seq_name(next_n, ext)
         os.replace(tmp, PHOTOS_DIR / final)
         saved.append(final)
+        next_n += 1
 
     parts = []
     if saved:
@@ -590,6 +872,41 @@ def upload():
     if not parts:
         parts.append('No file selected.')
     return redirect('/?msg=' + quote(' '.join(parts)))
+
+
+@app.post('/renumber')
+def renumber():
+    """Rename every existing photo to the sequential 0001, 0002, ... scheme,
+    oldest-first (by modified time), preserving each photo's extension and
+    patching the frame's history file so its rotation state isn't disrupted."""
+    _ensure_dirs()
+    photos = sorted(
+        (p for p in PHOTOS_DIR.iterdir()
+         if p.is_file() and p.suffix.lower() in ALLOWED and not p.name.startswith('.')),
+        key=lambda p: p.stat().st_mtime)
+
+    # Two-phase rename (via temp names) so we never collide with an existing
+    # target filename (e.g. renaming 0002.jpg to 0001.jpg while 0001.jpg exists).
+    temp_names = {}
+    for i, p in enumerate(photos):
+        tmp_name = f'.renumber-tmp-{i}{p.suffix.lower()}'
+        p.rename(PHOTOS_DIR / tmp_name)
+        temp_names[tmp_name] = p.name  # original name, for history patching
+
+    renames = {}
+    for i, (tmp_name, original_name) in enumerate(temp_names.items(), start=1):
+        new_name = _seq_name(i, Path(tmp_name).suffix.lower())
+        (PHOTOS_DIR / tmp_name).rename(PHOTOS_DIR / new_name)
+        renames[original_name] = new_name
+
+    _patch_history(renames)
+
+    # Thumbnails are cached by old name+mtime; safe to just clear them all.
+    if THUMB_DIR.exists():
+        for t in THUMB_DIR.iterdir():
+            t.unlink(missing_ok=True)
+
+    return redirect('/?msg=' + quote(f'Renamed {len(renames)} photo{"" if len(renames) == 1 else "s"} to sequential numbers.'))
 
 
 @app.post('/delete/<path:name>')
@@ -616,6 +933,95 @@ def thumb(name):
         except Exception:
             abort(404)  # e.g. HEIC without pillow-heif: browser shows blank tile
     return send_file(cached, mimetype='image/jpeg', max_age=86400)
+
+
+@app.get('/full/<path:name>')
+def full(name):
+    """Larger preview for the lightbox/crop editor (bounded so it stays fast
+    on a Pi, not necessarily the original resolution)."""
+    path = _photo_path(name)
+    cache_dir = THUMB_DIR / 'full'
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cached = cache_dir / f'{name}.{int(path.stat().st_mtime)}.jpg'
+    if not cached.exists():
+        try:
+            with Image.open(path) as im:
+                im.draft('RGB', (1600, 1600))
+                im = ImageOps.exif_transpose(im).convert('RGB')
+                im.thumbnail((1600, 1600))
+                im.save(cached, 'JPEG', quality=90)
+        except Exception:
+            abort(404)
+    return send_file(cached, mimetype='image/jpeg', max_age=86400)
+
+
+@app.get('/photo-meta/<path:name>')
+def photo_meta(name):
+    """Pixel dimensions of the original photo (used by the crop editor to
+    translate on-screen crop coordinates back to real image pixels)."""
+    path = _photo_path(name)
+    try:
+        with Image.open(path) as im:
+            im2 = ImageOps.exif_transpose(im)
+            w, h = im2.size
+    except Exception:
+        abort(404)
+    return jsonify({'width': w, 'height': h,
+                    'display_width': DISPLAY_WIDTH, 'display_height': DISPLAY_HEIGHT})
+
+
+@app.post('/crop/<path:name>')
+def crop(name):
+    """Crop a photo to the given box (in the original image's pixel
+    coordinates, already accounting for EXIF rotation) and overwrite it."""
+    path = _photo_path(name)
+    data = request.get_json(silent=True) or request.form
+    try:
+        x = int(float(data['x']))
+        y = int(float(data['y']))
+        w = int(float(data['w']))
+        h = int(float(data['h']))
+    except (KeyError, TypeError, ValueError):
+        return jsonify({'ok': False, 'error': 'Invalid crop box.'}), 400
+    if w <= 0 or h <= 0:
+        return jsonify({'ok': False, 'error': 'Crop box must have positive size.'}), 400
+
+    try:
+        with Image.open(path) as im:
+            im = ImageOps.exif_transpose(im)  # bake in rotation before cropping
+            iw, ih = im.size
+            x = max(0, min(x, iw - 1))
+            y = max(0, min(y, ih - 1))
+            w = max(1, min(w, iw - x))
+            h = max(1, min(h, ih - y))
+            cropped = im.crop((x, y, x + w, y + h))
+
+            tmp = path.with_name(f'.crop-tmp-{uuid.uuid4().hex}{path.suffix}')
+            save_kwargs = {}
+            if path.suffix.lower() in ('.jpg', '.jpeg'):
+                save_kwargs['quality'] = 95
+            cropped.save(tmp, **save_kwargs)
+            os.replace(tmp, path)
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+    for t in THUMB_DIR.glob(f'{name}.*.jpg'):
+        t.unlink(missing_ok=True)
+    for t in (THUMB_DIR / 'full').glob(f'{name}.*.jpg'):
+        t.unlink(missing_ok=True)
+
+    return jsonify({'ok': True})
+
+
+@app.post('/show-now/<path:name>')
+def show_now(name):
+    """Tell the running frame service to display this photo immediately."""
+    _photo_path(name)  # validates existence
+    try:
+        _request_show_now(name)
+    except OSError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+    return jsonify({'ok': True})
 
 
 # ------------------------------------------------------------------- main

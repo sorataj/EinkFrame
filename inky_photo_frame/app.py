@@ -25,6 +25,8 @@ from inky_photo_frame.welcome import display_welcome
 # Display settings (orientation, collage, collage border, change frequency,
 # sleep window), written by the web UI
 SETTINGS_FILE = Path(PHOTOS_DIR).parent / '.inky_settings.json'
+# "Show this photo now" command file, written by the web UI's lightbox
+SHOW_NOW_FILE = Path(PHOTOS_DIR).parent / '.inky_show_now'
 DEFAULT_SETTINGS = {
     'orientation': 'landscape', 'flip': False, 'collage': False,
     'border_width': 6, 'border_color': '#000000',
@@ -337,6 +339,30 @@ class InkyPhotoFrame:
             self.display_photo(self.history['current'])
         except Exception as e:
             logging.error(f'Error redrawing after settings change: {e}')
+
+    def _check_show_now(self):
+        """If the web UI's lightbox requested a specific photo be shown
+        immediately (via /show-now), display it now and consume the request."""
+        if not SHOW_NOW_FILE.exists():
+            return
+        try:
+            photo_path = SHOW_NOW_FILE.read_text().strip()
+        except OSError:
+            return
+        finally:
+            try:
+                SHOW_NOW_FILE.unlink()
+            except OSError:
+                pass
+
+        if not photo_path or not Path(photo_path).is_file():
+            return
+
+        logging.info(f'📌 "Show on frame now" requested: {Path(photo_path).name}')
+        try:
+            self.display_new_photo(photo_path)
+        except Exception as e:
+            logging.error(f'Error showing requested photo: {e}')
 
     def _collage_for(self, lead):
         """Return (extras, seed): the other photos to show next to `lead`, and the
@@ -689,6 +715,7 @@ class InkyPhotoFrame:
                 # noticed every 5 seconds so "Apply" takes effect quickly
                 for _ in range(12):
                     time_module.sleep(5)
+                    self._check_show_now()
                     self._apply_settings_if_changed()
 
                 # Check for daily change

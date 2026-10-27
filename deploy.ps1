@@ -66,7 +66,9 @@ try {
     Write-Step "Syncing webui/inky_webui.py to its standalone service folder"
     # The inky-webui.service runs from /home/pi/inky-webui, which is a separate
     # copy outside the git repo, so it needs to be refreshed explicitly here.
-    Get-Content "$PSScriptRoot\webui\inky_webui.py" -Raw | ssh $PiHost "cat > $PiWebuiDir/inky_webui.py"
+    # scp is used instead of a PowerShell pipe so the file is copied byte-for-byte
+    # (a text pipe would re-encode emoji/unicode using the console's codepage).
+    scp "$PSScriptRoot\webui\inky_webui.py" "${PiHost}:$PiWebuiDir/inky_webui.py"
 
     Write-Step "Restarting services on Raspberry Pi"
     ssh $PiHost "sudo systemctl restart inky-photo-frame inky-webui"
