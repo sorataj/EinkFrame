@@ -903,8 +903,9 @@ def renumber():
 
     # Thumbnails are cached by old name+mtime; safe to just clear them all.
     if THUMB_DIR.exists():
-        for t in THUMB_DIR.iterdir():
-            t.unlink(missing_ok=True)
+        for t in THUMB_DIR.rglob('*'):
+            if t.is_file():
+                t.unlink(missing_ok=True)
 
     return redirect('/?msg=' + quote(f'Renamed {len(renames)} photo{"" if len(renames) == 1 else "s"} to sequential numbers.'))
 
