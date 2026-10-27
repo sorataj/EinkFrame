@@ -53,11 +53,8 @@ THUMB_DIR = Path(os.environ.get('INKY_THUMB_DIR', DATA_DIR / '.inky_thumbs'))
 PORT = int(os.environ.get('INKY_WEB_PORT', '80'))
 PASSWORD = os.environ.get('INKY_WEB_PASSWORD', '')
 
-# Same files used by inky_photo_frame (kept in sync manually since the two
-# services run from separate folders): history is patched when photos are
-# renumbered, and the "show now" file is how this web UI asks the frame to
-# immediately display a specific photo.
-HISTORY_FILE = DATA_DIR / '.inky_history.json'
+# "Show now" command file: how this web UI asks the running frame service
+# (a separate process) to immediately display a specific photo.
 SHOW_NOW_FILE = DATA_DIR / '.inky_show_now'
 
 # Display resolution, used client-side for the "locked aspect ratio" crop
@@ -133,43 +130,6 @@ def _next_seq_number():
 
 def _seq_name(n, ext):
     return f'{n:04d}{ext}'
-
-
-def _patch_history(renames):
-    """Update ~/.inky_history.json so renamed photos keep their place in the
-    frame's rotation (shown/pending/current lists + metadata keys reference
-    the old full paths). renames: dict of {old_name: new_name} (just the
-    filename, not the full path)."""
-    if not renames or not HISTORY_FILE.exists():
-        return
-    try:
-        data = json.loads(HISTORY_FILE.read_text())
-    except (OSError, ValueError):
-        return
-
-    def fix(path_str):
-        if not path_str:
-            return path_str
-        old_name = Path(path_str).name
-        new_name = renames.get(old_name)
-        return str(PHOTOS_DIR / new_name) if new_name else path_str
-
-    data['current'] = fix(data.get('current'))
-    for key in ('shown', 'pending'):
-        data[key] = [fix(p) for p in data.get(key, [])]
-    meta = data.get('photo_metadata', {})
-    new_meta = {}
-    for old_path, info in meta.items():
-        new_meta[fix(old_path)] = info
-    data['photo_metadata'] = new_meta
-    collage = data.get('collage')
-    if isinstance(collage, dict):
-        collage['lead'] = fix(collage.get('lead'))
-        collage['extras'] = [fix(p) for p in collage.get('extras', [])]
-
-    tmp = HISTORY_FILE.with_name(HISTORY_FILE.name + '.tmp')
-    tmp.write_text(json.dumps(data, indent=2))
-    os.replace(tmp, HISTORY_FILE)
 
 
 def _request_show_now(photo_name):
@@ -446,12 +406,7 @@ PAGE = """<!doctype html>
     <p class="muted" style="margin-bottom:0">New photos are shown on the frame straight away.</p>
   </div>
 
-  <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap">
-    <h2 style="font-size:1.1rem; margin:0">{{ photos|length }} photo{{ '' if photos|length == 1 else 's' }}</h2>
-    <form method="post" action="/renumber" onsubmit="return confirm('Rename every photo to sequential numbers (0001, 0002, ...)? This keeps the current rotation order.')">
-      <button type="submit" class="secondary">Renumber all photos</button>
-    </form>
-  </div>
+  <h2 style="font-size:1.1rem; margin:0 0 10px">{{ photos|length }} photo{{ '' if photos|length == 1 else 's' }}</h2>
   <div class="grid">
   {% for p in photos %}
     <div class="item">
@@ -872,42 +827,6 @@ def upload():
     if not parts:
         parts.append('No file selected.')
     return redirect('/?msg=' + quote(' '.join(parts)))
-
-
-@app.post('/renumber')
-def renumber():
-    """Rename every existing photo to the sequential 0001, 0002, ... scheme,
-    oldest-first (by modified time), preserving each photo's extension and
-    patching the frame's history file so its rotation state isn't disrupted."""
-    _ensure_dirs()
-    photos = sorted(
-        (p for p in PHOTOS_DIR.iterdir()
-         if p.is_file() and p.suffix.lower() in ALLOWED and not p.name.startswith('.')),
-        key=lambda p: p.stat().st_mtime)
-
-    # Two-phase rename (via temp names) so we never collide with an existing
-    # target filename (e.g. renaming 0002.jpg to 0001.jpg while 0001.jpg exists).
-    temp_names = {}
-    for i, p in enumerate(photos):
-        tmp_name = f'.renumber-tmp-{i}{p.suffix.lower()}'
-        p.rename(PHOTOS_DIR / tmp_name)
-        temp_names[tmp_name] = p.name  # original name, for history patching
-
-    renames = {}
-    for i, (tmp_name, original_name) in enumerate(temp_names.items(), start=1):
-        new_name = _seq_name(i, Path(tmp_name).suffix.lower())
-        (PHOTOS_DIR / tmp_name).rename(PHOTOS_DIR / new_name)
-        renames[original_name] = new_name
-
-    _patch_history(renames)
-
-    # Thumbnails are cached by old name+mtime; safe to just clear them all.
-    if THUMB_DIR.exists():
-        for t in THUMB_DIR.rglob('*'):
-            if t.is_file():
-                t.unlink(missing_ok=True)
-
-    return redirect('/?msg=' + quote(f'Renamed {len(renames)} photo{"" if len(renames) == 1 else "s"} to sequential numbers.'))
 
 
 @app.post('/delete/<path:name>')

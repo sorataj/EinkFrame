@@ -1,31 +1,44 @@
 # Inky Photo Frame
 
-## 📱 How to Add Photos from Your Phone
+## 🌐 Web App
 
-### iPhone/iPad
-1. Open the **Files** app
-2. Tap **Connect to Server**
-3. Enter: `smb://192.168.1.151`
-4. Use these credentials:
-   - **Username:** inky
-   - **Password:** 3KGdDeIwJw
-5. Open the **Images** folder
-6. Upload your photos (JPG, PNG, HEIC supported)
+Manage your photo frame from any phone, tablet, or computer on the same WiFi network — no need to connect cables or use file-sharing apps.
 
-### Android
-1. Use a file explorer app (CX File Explorer, Solid Explorer)
-2. Connect to: `smb://192.168.1.151`
-3. Enter the same credentials as above
-4. Navigate to **Images** folder
-5. Upload your photos
+### How to access
+
+Open a web browser and go to:
+
+```
+http://inkyimpression.local
+```
+
+(No port number needed — it's served on the standard web port.)
+
+### What you can do
+
+#### 📷 Photos tab
+- **Upload photos** (JPG, PNG, HEIC, and more) — new photos appear on the frame within seconds
+- **Browse** all photos as thumbnails
+- **Click any photo** to open a full-size preview, where you can:
+  - **Show on frame now** — instantly display that photo on the e-ink screen
+  - **Crop** the photo, either **free-form** or **locked to the frame's aspect ratio** (so the result fills the screen perfectly)
+- **Delete** photos you no longer want
+
+#### ⚙️ Settings tab
+- **Frame orientation** — landscape or portrait, plus a 180° flip option
+- **Collage mode** — show 2–3 photos per screen in a random layout, with adjustable border thickness and colour
+- **Change frequency** — have the frame change photos every N minutes, or once a day at a set hour
+- **Sleep window** — pause photo changes during certain hours (e.g. overnight) to save battery; the frame simply freezes on whatever is currently shown
+- **System info** — at-a-glance disk space, OS version, frame uptime, CPU temperature, and core voltage
 
 ## ✨ Features
 
 - **Instant display** of new photos
-- **Daily rotation** at 5AM
+- **Configurable rotation** — by interval or daily schedule
 - **Smart history** - doesn't repeat recent photos
 - **HEIC support** for iPhone photos
 - **Smart cropping** for e-ink display
+- **Battery-saving sleep window**
 
 ## 🛠 Useful Commands
 
