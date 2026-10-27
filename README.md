@@ -26,10 +26,28 @@ http://inkyimpression.local
 
 #### ⚙️ Settings tab
 - **Frame orientation** — landscape or portrait, plus a 180° flip option
-- **Collage mode** — show 2–3 photos per screen in a random layout, with adjustable border thickness and colour
+- **Collage mode** — show 2–3 photos per screen in a random layout
+- **Collage border** — add a border between the photos in collage mode, with adjustable thickness (0–20px) and colour (full colour picker, plus quick-pick swatches for the panel's 6 colours)
 - **Change frequency** — have the frame change photos every N minutes, or once a day at a set hour
 - **Sleep window** — pause photo changes during certain hours (e.g. overnight) to save battery; the frame simply freezes on whatever is currently shown
 - **System info** — at-a-glance disk space, OS version, frame uptime, CPU temperature, and core voltage
+
+## 🎮 Physical Button Controls
+
+The Inky Impression has 4 physical buttons on the side for interactive control:
+
+| Button | Location | Function |
+|--------|----------|----------|
+| A | Top | ⏭️ Next photo |
+| B | | ⏮️ Previous photo |
+| C | | 🎨 Cycle color modes (pimoroni → spectra_palette → warmth_boost) |
+| D | Bottom | 🔄 Reset to pimoroni default mode |
+
+Features:
+- No messages displayed - actions happen silently
+- Buttons are locked during photo display (~30-40s e-ink refresh)
+- Color mode preference is saved and persists across reboots
+- Navigate through your photo collection without using your phone
 
 ## ✨ Features
 
@@ -37,7 +55,7 @@ http://inkyimpression.local
 - **Configurable rotation** — by interval or daily schedule
 - **Smart history** - doesn't repeat recent photos
 - **HEIC support** for iPhone photos
-- **Smart cropping** for e-ink display
+- **Smart auto-cropping** for e-ink display — photos are automatically cropped to fill the screen (or letterboxed if too much would be lost), separate from the manual crop tool in the web app
 - **Battery-saving sleep window**
 
 ## 🛠 Useful Commands
