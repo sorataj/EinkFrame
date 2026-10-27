@@ -32,7 +32,7 @@ from urllib.parse import quote
 
 from flask import (Flask, Response, abort, jsonify, redirect,
                    render_template_string, request, send_file)
-from PIL import Image, ImageOps
+from PIL import Image, ImageEnhance, ImageOps
 from werkzeug.utils import secure_filename
 
 try:  # optional: lets thumbnails work for iPhone HEIC photos
@@ -441,13 +441,23 @@ PAGE = """<!doctype html>
     <div class="lb-actions">
       <div class="left">
         <button type="button" onclick="showOnFrame()">Show on frame now</button>
-        <button type="button" class="secondary" id="lb-crop-toggle" onclick="toggleCropMode()">Crop photo</button>
+        <button type="button" class="secondary" id="lb-crop-toggle" onclick="toggleCropMode()">Edit photo</button>
       </div>
-      <div class="right" id="lb-crop-controls" style="display:none">
-        <button type="button" class="secondary toggle active" id="lb-free" onclick="setCropAspect(null)">Free-form</button>
-        <button type="button" class="secondary toggle" id="lb-locked" onclick="setCropAspect('locked')">Frame ratio</button>
-        <button type="button" onclick="saveCrop()">Save crop</button>
+    </div>
+    <div id="lb-edit-controls" style="display:none">
+      <div class="lbl sep" style="margin-bottom:6px">Crop (optional)</div>
+      <div class="lb-actions">
+        <div class="left">
+          <button type="button" class="secondary toggle active" id="lb-free" onclick="setCropAspect(null)">Free-form</button>
+          <button type="button" class="secondary toggle" id="lb-locked" onclick="setCropAspect('locked')">Frame ratio</button>
+          <button type="button" class="secondary" id="lb-crop-clear" onclick="clearCrop()">No crop</button>
+        </div>
       </div>
+      <div class="lbl sep">Brightness: <b id="lb-brightness-out">100%</b></div>
+      <input id="lb-brightness" type="range" min="30" max="200" value="100">
+      <div class="lbl sep">Contrast: <b id="lb-contrast-out">100%</b></div>
+      <input id="lb-contrast" type="range" min="30" max="200" value="100">
+      <button type="button" style="width:100%;margin-top:14px" onclick="saveEdit()">Save changes</button>
     </div>
   </div>
 </div>
@@ -591,27 +601,33 @@ form.addEventListener('submit', e => {
   xhr.send(new FormData(form));
 });
 
-// -------------------------------------------------------- lightbox + crop
-let lbName = null, lbMeta = null, lbCropping = false, lbAspect = null;
+// -------------------------------------------------------- lightbox + edit
+let lbName = null, lbMeta = null, lbEditing = false, lbAspect = null, lbHasCrop = false;
 let lbBox = { x: 0, y: 0, w: 0, h: 0 };   // in on-screen (displayed image) pixels
 let lbDrag = null;
 
 const lightbox = document.getElementById('lightbox'), lbImg = document.getElementById('lb-img'),
       lbCropbox = document.getElementById('lb-cropbox'), lbWrap = document.getElementById('lb-wrap'),
       lbStatus = document.getElementById('lb-status'), lbTitle = document.getElementById('lb-title'),
-      lbCropToggle = document.getElementById('lb-crop-toggle'), lbCropControls = document.getElementById('lb-crop-controls'),
+      lbCropToggle = document.getElementById('lb-crop-toggle'), lbEditControls = document.getElementById('lb-edit-controls'),
       lbFreeBtn = document.getElementById('lb-free'), lbLockedBtn = document.getElementById('lb-locked'),
-      lbHandle = document.getElementById('lb-handle');
+      lbHandle = document.getElementById('lb-handle'),
+      lbBrightness = document.getElementById('lb-brightness'), lbBrightnessOut = document.getElementById('lb-brightness-out'),
+      lbContrast = document.getElementById('lb-contrast'), lbContrastOut = document.getElementById('lb-contrast-out');
 
 function openLightbox(name) {
   lbName = name;
-  lbCropping = false;
+  lbEditing = false;
   lbAspect = null;
+  lbHasCrop = false;
   lbStatus.textContent = '';
   lbTitle.textContent = name;
   lbCropbox.style.display = 'none';
-  lbCropControls.style.display = 'none';
-  lbCropToggle.textContent = 'Crop photo';
+  lbEditControls.style.display = 'none';
+  lbCropToggle.textContent = 'Edit photo';
+  lbBrightness.value = 100; lbContrast.value = 100;
+  lbBrightnessOut.textContent = '100%'; lbContrastOut.textContent = '100%';
+  lbImg.style.filter = '';
   lbImg.src = '/full/' + encodeURIComponent(name) + '?v=' + Date.now();
   lightbox.classList.add('open');
   fetch('/photo-meta/' + encodeURIComponent(name)).then(r => r.json()).then(m => { lbMeta = m; }).catch(() => { lbMeta = null; });
@@ -620,7 +636,8 @@ function openLightbox(name) {
 function closeLightbox() {
   lightbox.classList.remove('open');
   lbImg.src = '';
-  lbCropping = false;
+  lbImg.style.filter = '';
+  lbEditing = false;
 }
 
 function showOnFrame() {
@@ -633,26 +650,47 @@ function showOnFrame() {
 }
 
 function toggleCropMode() {
-  lbCropping = !lbCropping;
-  lbCropControls.style.display = lbCropping ? 'flex' : 'none';
-  lbCropToggle.textContent = lbCropping ? 'Cancel crop' : 'Crop photo';
-  if (lbCropping) {
-    const r = lbImg.getBoundingClientRect();
-    lbBox = { x: r.width * 0.1, y: r.height * 0.1, w: r.width * 0.8, h: r.height * 0.8 };
-    if (lbAspect === 'locked') applyAspect();
-    drawCropBox();
-    lbCropbox.style.display = 'block';
+  lbEditing = !lbEditing;
+  lbEditControls.style.display = lbEditing ? 'block' : 'none';
+  lbCropToggle.textContent = lbEditing ? 'Cancel' : 'Edit photo';
+  if (lbEditing) {
+    startCropBox();
   } else {
     lbCropbox.style.display = 'none';
+    lbHasCrop = false;
   }
+}
+
+function startCropBox() {
+  const r = lbImg.getBoundingClientRect();
+  lbBox = { x: r.width * 0.1, y: r.height * 0.1, w: r.width * 0.8, h: r.height * 0.8 };
+  if (lbAspect === 'locked') applyAspect();
+  drawCropBox();
+  lbCropbox.style.display = 'block';
+  lbHasCrop = true;
+}
+
+function clearCrop() {
+  lbCropbox.style.display = 'none';
+  lbHasCrop = false;
 }
 
 function setCropAspect(mode) {
   lbAspect = mode;
   lbFreeBtn.classList.toggle('active', mode === null);
   lbLockedBtn.classList.toggle('active', mode === 'locked');
-  if (lbCropping) { applyAspect(); drawCropBox(); }
+  if (!lbHasCrop) startCropBox();
+  else { applyAspect(); drawCropBox(); }
 }
+
+function updateFilterPreview() {
+  const b = lbBrightness.value, c = lbContrast.value;
+  lbBrightnessOut.textContent = b + '%';
+  lbContrastOut.textContent = c + '%';
+  lbImg.style.filter = 'brightness(' + (b / 100) + ') contrast(' + (c / 100) + ')';
+}
+lbBrightness.addEventListener('input', updateFilterPreview);
+lbContrast.addEventListener('input', updateFilterPreview);
 
 function applyAspect() {
   if (lbAspect !== 'locked' || !lbMeta) return;
@@ -720,20 +758,27 @@ function stopDrag() {
   document.removeEventListener('touchend', stopDrag);
 }
 
-function saveCrop() {
+function saveEdit() {
   if (!lbName || !lbMeta) { lbStatus.textContent = 'Photo info not loaded yet, try again.'; return; }
-  const scaleX = lbMeta.width / lbImg.clientWidth, scaleY = lbMeta.height / lbImg.clientHeight;
   const payload = {
-    x: Math.round(lbBox.x * scaleX), y: Math.round(lbBox.y * scaleY),
-    w: Math.round(lbBox.w * scaleX), h: Math.round(lbBox.h * scaleY),
+    brightness: lbBrightness.value / 100,
+    contrast: lbContrast.value / 100,
   };
-  lbStatus.textContent = 'Saving crop…';
+  if (lbHasCrop) {
+    const scaleX = lbMeta.width / lbImg.clientWidth, scaleY = lbMeta.height / lbImg.clientHeight;
+    payload.x = Math.round(lbBox.x * scaleX);
+    payload.y = Math.round(lbBox.y * scaleY);
+    payload.w = Math.round(lbBox.w * scaleX);
+    payload.h = Math.round(lbBox.h * scaleY);
+  }
+  lbStatus.textContent = 'Saving changes…';
   fetch('/crop/' + encodeURIComponent(lbName), {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
   }).then(r => r.json()).then(d => {
     if (d.ok) {
-      lbStatus.textContent = 'Crop saved.';
+      lbStatus.textContent = 'Saved.';
       lbImg.src = '/full/' + encodeURIComponent(lbName) + '?v=' + Date.now();
+      lbImg.style.filter = '';
       toggleCropMode();
       setTimeout(() => location.reload(), 600);
     } else {
@@ -878,7 +923,9 @@ def full(name):
 @app.get('/photo-meta/<path:name>')
 def photo_meta(name):
     """Pixel dimensions of the original photo (used by the crop editor to
-    translate on-screen crop coordinates back to real image pixels)."""
+    translate on-screen crop coordinates back to real image pixels), plus
+    the frame's current display aspect ratio (swapped for portrait mode) so
+    the "Frame ratio" locked crop always matches the real orientation."""
     path = _photo_path(name)
     try:
         with Image.open(path) as im:
@@ -886,41 +933,72 @@ def photo_meta(name):
             w, h = im2.size
     except Exception:
         abort(404)
+    settings = _load_settings()
+    disp_w, disp_h = DISPLAY_WIDTH, DISPLAY_HEIGHT
+    if settings['orientation'] == 'portrait':
+        disp_w, disp_h = disp_h, disp_w
     return jsonify({'width': w, 'height': h,
-                    'display_width': DISPLAY_WIDTH, 'display_height': DISPLAY_HEIGHT})
+                    'display_width': disp_w, 'display_height': disp_h})
 
 
 @app.post('/crop/<path:name>')
 def crop(name):
-    """Crop a photo to the given box (in the original image's pixel
-    coordinates, already accounting for EXIF rotation) and overwrite it."""
+    """Edit a photo: crop to the given box (in the original image's pixel
+    coordinates, already accounting for EXIF rotation) and/or adjust
+    brightness/contrast, then overwrite the original. The crop box is
+    optional - if x/y/w/h are omitted, the full image is kept and only
+    brightness/contrast (if given) are applied."""
     path = _photo_path(name)
     data = request.get_json(silent=True) or request.form
-    try:
-        x = int(float(data['x']))
-        y = int(float(data['y']))
-        w = int(float(data['w']))
-        h = int(float(data['h']))
-    except (KeyError, TypeError, ValueError):
-        return jsonify({'ok': False, 'error': 'Invalid crop box.'}), 400
-    if w <= 0 or h <= 0:
-        return jsonify({'ok': False, 'error': 'Crop box must have positive size.'}), 400
+
+    def _float_or(key, default):
+        try:
+            return float(data[key])
+        except (KeyError, TypeError, ValueError):
+            return default
+
+    brightness = _float_or('brightness', 1.0)
+    contrast = _float_or('contrast', 1.0)
+    brightness = max(0.3, min(2.0, brightness))
+    contrast = max(0.3, min(2.0, contrast))
+
+    has_crop_box = all(k in data and str(data[k]) != '' for k in ('x', 'y', 'w', 'h'))
+    x = y = w = h = None
+    if has_crop_box:
+        try:
+            x = int(float(data['x']))
+            y = int(float(data['y']))
+            w = int(float(data['w']))
+            h = int(float(data['h']))
+        except (KeyError, TypeError, ValueError):
+            return jsonify({'ok': False, 'error': 'Invalid crop box.'}), 400
+        if w <= 0 or h <= 0:
+            return jsonify({'ok': False, 'error': 'Crop box must have positive size.'}), 400
 
     try:
         with Image.open(path) as im:
-            im = ImageOps.exif_transpose(im)  # bake in rotation before cropping
-            iw, ih = im.size
-            x = max(0, min(x, iw - 1))
-            y = max(0, min(y, ih - 1))
-            w = max(1, min(w, iw - x))
-            h = max(1, min(h, ih - y))
-            cropped = im.crop((x, y, x + w, y + h))
+            im = ImageOps.exif_transpose(im)  # bake in rotation before editing
+            if im.mode not in ('RGB', 'L'):
+                im = im.convert('RGB')
+
+            if has_crop_box:
+                iw, ih = im.size
+                x = max(0, min(x, iw - 1))
+                y = max(0, min(y, ih - 1))
+                w = max(1, min(w, iw - x))
+                h = max(1, min(h, ih - y))
+                im = im.crop((x, y, x + w, y + h))
+
+            if brightness != 1.0:
+                im = ImageEnhance.Brightness(im).enhance(brightness)
+            if contrast != 1.0:
+                im = ImageEnhance.Contrast(im).enhance(contrast)
 
             tmp = path.with_name(f'.crop-tmp-{uuid.uuid4().hex}{path.suffix}')
             save_kwargs = {}
             if path.suffix.lower() in ('.jpg', '.jpeg'):
                 save_kwargs['quality'] = 95
-            cropped.save(tmp, **save_kwargs)
+            im.save(tmp, **save_kwargs)
             os.replace(tmp, path)
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500

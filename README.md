@@ -21,7 +21,10 @@ http://inkyimpression.local
 - **Browse** all photos as thumbnails
 - **Click any photo** to open a full-size preview, where you can:
   - **Show on frame now** — instantly display that photo on the e-ink screen
-  - **Crop** the photo, either **free-form** or **locked to the frame's aspect ratio** (so the result fills the screen perfectly)
+  - **Edit photo** — opens an editor with:
+    - **Crop** (optional), either **free-form** or **locked to the frame's current aspect ratio** (automatically matches landscape/portrait from Settings, so the result fills the screen perfectly)
+    - **Brightness** and **Contrast** sliders, with an instant live preview before saving
+    - A single **Save changes** button applies the crop and brightness/contrast together, overwriting the original photo
 - **Delete** photos you no longer want
 
 #### ⚙️ Settings tab
