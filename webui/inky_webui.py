@@ -453,18 +453,6 @@ PAGE = """<!doctype html>
 </div>
 
 <div class="tab-panel" id="tab-settings">
-  <div class="card">
-    <div class="lbl">System info</div>
-    <div class="info-grid" id="sysinfo">
-      <div class="info-box"><div class="k">Disk free</div><div class="v" id="si-disk">–</div></div>
-      <div class="info-box"><div class="k">OS</div><div class="v" id="si-os" style="font-size:.85rem">–</div></div>
-      <div class="info-box"><div class="k">Frame uptime</div><div class="v" id="si-uptime">–</div></div>
-      <div class="info-box"><div class="k">CPU temp</div><div class="v" id="si-temp">–</div></div>
-      <div class="info-box"><div class="k">Core voltage</div><div class="v" id="si-volt">–</div></div>
-      <div class="info-box"><div class="k">Started</div><div class="v" id="si-start" style="font-size:.85rem">–</div></div>
-    </div>
-  </div>
-
   <form id="settings" method="post" action="/settings">
     <div class="card">
       <div class="lbl">Frame orientation</div>
@@ -533,6 +521,18 @@ PAGE = """<!doctype html>
 
     <button id="apply" type="submit" disabled style="width:100%;margin-bottom:20px">Apply changes</button>
   </form>
+
+  <div class="card">
+    <div class="lbl">System info</div>
+    <div class="info-grid" id="sysinfo">
+      <div class="info-box"><div class="k">Disk free</div><div class="v" id="si-disk">–</div></div>
+      <div class="info-box"><div class="k">OS</div><div class="v" id="si-os" style="font-size:.85rem">–</div></div>
+      <div class="info-box"><div class="k">Frame uptime</div><div class="v" id="si-uptime">–</div></div>
+      <div class="info-box"><div class="k">CPU temp</div><div class="v" id="si-temp">–</div></div>
+      <div class="info-box"><div class="k">Core voltage</div><div class="v" id="si-volt">–</div></div>
+      <div class="info-box"><div class="k">Started</div><div class="v" id="si-start" style="font-size:.85rem">–</div></div>
+    </div>
+  </div>
 </div>
 
 <script>
