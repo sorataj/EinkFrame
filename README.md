@@ -49,3 +49,7 @@ sudo systemctl stop inky-photo-frame
 - Application: /home/pi/inky-photo-frame
 - Logs: /home/pi/inky_photo_frame.log
 - History: /home/pi/.inky_history.json
+
+## 🙏 Credits
+
+This project is based on the original work by [mehdi7129](https://github.com/mehdi7129/inky-photo-frame).
