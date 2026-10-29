@@ -6,7 +6,8 @@
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Raspberry%20Pi-red)](https://www.raspberrypi.org/)
-[![Display](https://img.shields.io/badge/display-Inky%20Impression-purple)](https://shop.pimoroni.com/products/inky-impression-7-3)
+[![Display 7.3"](https://img.shields.io/badge/display-Inky%20Impression%207.3%22-purple)](https://shop.pimoroni.com/products/inky-impression-7-3)
+[![Display 13.3"](https://img.shields.io/badge/display-Inky%20Impression%2013.3%22-purple)](https://shop.pimoroni.com/products/inky-impression-7-3?variant=55186435277179)
 
 [**🚀 Install**](#-installing-on-a-new-raspberry-pi) • [**🌐 Web App**](#-web-app) • [**🎮 Buttons**](#-physical-button-controls) • [**📁 Files**](#-file-locations) • [**🙏 License**](#-license)
 
