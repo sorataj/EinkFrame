@@ -85,6 +85,11 @@ class InkyPhotoFrame:
         self._applied_settings = self._read_settings()
         self._applied_color_mode = self.color_mode
 
+        # Whether the CPU governor/WiFi radio are currently powered down for
+        # battery saving during the configured sleep window (see
+        # _update_power_saving). Button D can override this early.
+        self._power_saving = False
+
         # Storage management - cleanup old photos periodically
         self.last_cleanup = datetime.now()
 
@@ -340,6 +345,44 @@ class InkyPhotoFrame:
             self.display_photo(self.history['current'])
         except Exception as e:
             logging.error(f'Error redrawing after settings change: {e}')
+
+    @staticmethod
+    def _run_power_mode(action):
+        """Run the inky-power-mode.sh helper (sleep/wake) via the dedicated
+        passwordless sudoers rule. Best-effort - failures are logged but
+        never crash the main loop (e.g. on non-Pi dev machines)."""
+        import subprocess
+        try:
+            subprocess.run(['sudo', '/usr/local/bin/inky-power-mode.sh', action],
+                           timeout=10, capture_output=True)
+        except Exception as e:
+            logging.warning(f'Could not run power-mode helper ({action}): {e}')
+
+    def _update_power_saving(self):
+        """Enter/leave CPU-governor + WiFi-radio power saving as the frame
+        crosses the configured sleep window boundary. Button D can wake
+        early via wake_from_sleep(); this will re-enter sleep power-saving
+        automatically next time the window starts again."""
+        should_sleep = self._in_sleep_window(self._read_settings())
+        if should_sleep and not self._power_saving:
+            logging.info('🌙 Entering sleep window - powering down WiFi and CPU governor')
+            self._run_power_mode('sleep')
+            self._power_saving = True
+        elif not should_sleep and self._power_saving:
+            logging.info('☀️ Leaving sleep window - restoring WiFi and CPU governor')
+            self._run_power_mode('wake')
+            self._power_saving = False
+
+    def wake_from_sleep(self):
+        """Manually wake WiFi/CPU early during an active sleep window
+        (triggered by Button D). Sleep will resume automatically the next
+        time the sleep window starts fresh."""
+        if not self._power_saving:
+            return False
+        logging.info('🔘 Manual wake requested - restoring WiFi and CPU governor')
+        self._run_power_mode('wake')
+        self._power_saving = False
+        return True
 
     def _apply_color_mode_if_changed(self):
         """Pick up a color mode change made from the web UI (Settings tab) or
@@ -738,6 +781,7 @@ class InkyPhotoFrame:
                     self._check_show_now()
                     self._apply_settings_if_changed()
                     self._apply_color_mode_if_changed()
+                    self._update_power_saving()
 
                 # Check for daily change
                 if self.should_change_photo():

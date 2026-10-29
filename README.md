@@ -24,7 +24,7 @@
 | ✂️ **Smart Cropping** | Automatic fill-cropping for the display, plus a manual crop / brightness / contrast editor |
 | 🖼️ **Collage Mode** | Show 2–3 photos per screen in a random layout, with an optional border |
 | 🔄 **Auto Rotation** | Change photos every N minutes or once a day, with history so nothing repeats too soon |
-| 🌙 **Sleep Window** | Freeze the display overnight (or any time range) to save battery |
+| 🌙 **Sleep Window** | Freeze the display, power down WiFi, and lower the CPU governor overnight (or any time range) to save battery |
 | 🔧 **Self-Update** | Pull the latest version from GitHub and restart services, right from the browser |
 | 📊 **System Info & Logs** | Service status, disk/CPU/voltage stats, and a live log viewer — no SSH needed |
 | ⏻ **Remote Power** | Restart or power off the Raspberry Pi from the web app |
@@ -79,7 +79,7 @@ No port number needed — it's served on the standard web port. If your browser 
 - **Color mode** — choose between Spectra palette (accurate colors, recommended), Warmth boost (warmer tones for portraits), or Pimoroni default (official library behavior)
 - **Collage border** — add a border between the photos in collage mode, with adjustable thickness (0–20px) and colour (full colour picker, plus quick-pick swatches for the panel's 6 colours)
 - **Change frequency** — have the frame change photos every N minutes, or once a day at a set hour; a smart history keeps track of recently shown photos so nothing repeats too soon
-- **Sleep window** — pause photo changes during certain hours (e.g. overnight) to save battery; the frame simply freezes on whatever is currently shown
+- **Sleep window** — pause photo changes during certain hours (e.g. overnight) to save battery; the frame freezes on whatever is currently shown, and additionally powers down the WiFi radio and switches the CPU to a low-power governor for extra savings. **The web app is unreachable while sleeping** — press physical Button D on the frame to wake WiFi early if needed (normal sleep power-saving resumes automatically the next time the window starts)
 - **Software update** — pull the latest version from GitHub and restart the services, right from the browser
 - **Power** — restart or power off the Raspberry Pi
 - **System info** — at-a-glance service status, disk space, OS version, frame uptime, CPU temperature, core voltage, and a "View logs" button for live troubleshooting without SSH
@@ -93,7 +93,7 @@ The Inky Impression has 4 physical buttons on the side for interactive control:
 | A | Top | ⏭️ Next photo |
 | B | | ⏮️ Previous photo |
 | C | | 🎨 Cycle color modes (pimoroni → spectra_palette → warmth_boost) |
-| D | Bottom | 🔄 Reset to pimoroni default mode |
+| D | Bottom | 🔄 Reset to pimoroni default mode — or, if currently in sleep power-saving, wake WiFi early instead |
 
 Features:
 - No messages displayed — actions happen silently

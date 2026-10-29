@@ -219,15 +219,21 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 8. Passwordless sudo for the web UI's Update/Restart/Power-off buttons
+# 8. Passwordless sudo for the web UI's Update/Restart/Power-off buttons,
+#    and for the frame's sleep-window power-saving script
 # ---------------------------------------------------------------------------
-print_info "Granting passwordless sudo for service restart / reboot / poweroff..."
+print_info "Installing power-mode helper script (CPU governor + WiFi radio)..."
+sudo cp "$INSTALL_DIR/inky-power-mode.sh" /usr/local/bin/inky-power-mode.sh
+sudo chmod 755 /usr/local/bin/inky-power-mode.sh
+print_status "inky-power-mode.sh installed to /usr/local/bin"
+
+print_info "Granting passwordless sudo for service restart / reboot / poweroff / power-mode..."
 SUDOERS_FILE=/etc/sudoers.d/inky-webui
 sudo tee "$SUDOERS_FILE" > /dev/null << EOF
-$RUN_USER ALL=(ALL) NOPASSWD: /bin/systemctl restart inky-photo-frame, /bin/systemctl restart inky-webui, /bin/systemctl restart inky-photo-frame inky-webui, /sbin/reboot, /sbin/poweroff
+$RUN_USER ALL=(ALL) NOPASSWD: /bin/systemctl restart inky-photo-frame, /bin/systemctl restart inky-webui, /bin/systemctl restart inky-photo-frame inky-webui, /sbin/reboot, /sbin/poweroff, /usr/local/bin/inky-power-mode.sh sleep, /usr/local/bin/inky-power-mode.sh wake
 EOF
 sudo chmod 440 "$SUDOERS_FILE"
-sudo visudo -cf "$SUDOERS_FILE" > /dev/null 2>&1 && print_status "Sudoers rule installed" || print_error "Sudoers rule failed validation - update/power buttons may not work"
+sudo visudo -cf "$SUDOERS_FILE" > /dev/null 2>&1 && print_status "Sudoers rule installed" || print_error "Sudoers rule failed validation - update/power/sleep buttons may not work"
 
 # ---------------------------------------------------------------------------
 # 9. GPIO + journal permissions (journal access lets the web UI's "View

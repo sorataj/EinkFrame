@@ -84,11 +84,16 @@ class ButtonController:
                 self.busy = False
 
     def _on_button_d(self):
-        """Button D: Reset to pimoroni mode"""
-        logging.info('🔘 Button D pressed - Reset to pimoroni mode')
+        """Button D: Reset to pimoroni mode - or, if the frame is currently
+        in sleep-window power-saving (WiFi off), wake it up early instead."""
         if not self.busy:
             self.busy = True
             try:
-                self.photo_frame.reset_color_mode()
+                if getattr(self.photo_frame, '_power_saving', False):
+                    logging.info('🔘 Button D pressed - Waking from sleep power-saving')
+                    self.photo_frame.wake_from_sleep()
+                else:
+                    logging.info('🔘 Button D pressed - Reset to pimoroni mode')
+                    self.photo_frame.reset_color_mode()
             finally:
                 self.busy = False
