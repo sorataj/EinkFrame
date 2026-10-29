@@ -1,5 +1,15 @@
 # Inky Photo Frame
 
+## 🚀 Installing on a new Raspberry Pi
+
+Flash Raspberry Pi OS, connect to WiFi and SSH, then run:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/sorataj/EinkFrame/main/install.sh | bash
+```
+
+This installs everything from scratch: system dependencies, a Python virtual environment, the frame software, the web app, and the two systemd services (`inky-photo-frame`, `inky-webui`) set to start automatically on boot. A reboot is recommended afterwards so GPIO group permissions take effect. Re-running the script later safely pulls the latest version and reinstalls.
+
 ## 🌐 Web App
 
 Manage your photo frame from any phone, tablet, or computer on the same WiFi network — no need to connect cables or use file-sharing apps.
