@@ -21,14 +21,19 @@ set_governor() {
     done
 }
 
+# rfkill typically lives in /usr/sbin, which isn't always on PATH for
+# non-interactive sudo invocations - use the absolute path to be safe.
+RFKILL=/usr/sbin/rfkill
+[ -x "$RFKILL" ] || RFKILL=$(command -v rfkill || echo rfkill)
+
 case "$MODE" in
     sleep)
         set_governor "powersave"
-        rfkill block wifi 2>/dev/null || true
+        "$RFKILL" block wifi 2>/dev/null || true
         ;;
     wake)
         set_governor "ondemand"
-        rfkill unblock wifi 2>/dev/null || true
+        "$RFKILL" unblock wifi 2>/dev/null || true
         ;;
     *)
         echo "Usage: $0 {sleep|wake}" >&2
