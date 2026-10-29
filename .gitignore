@@ -1,6 +1,0 @@
-*.bak
-__pycache__/
-
-# graphify-axet
-.graphify/
-.graphifyignore
