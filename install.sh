@@ -253,7 +253,7 @@ After=multi-user.target
 [Service]
 Type=oneshot
 ExecStart=/bin/sh -c 'echo none > /sys/class/leds/ACT/trigger || true'
-ExecStart=/bin/sh -c 'echo 1 > /sys/class/leds/ACT/brightness || true'
+ExecStart=/bin/sh -c 'echo 0 > /sys/class/leds/ACT/brightness || true'
 ExecStart=/bin/sh -c 'echo none > /sys/class/leds/default-on/trigger || true'
 ExecStart=/bin/sh -c 'echo 0 > /sys/class/leds/default-on/brightness || true'
 RemainAfterExit=yes
