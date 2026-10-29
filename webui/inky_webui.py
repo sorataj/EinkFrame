@@ -322,10 +322,21 @@ def _frame_process_start():
     return START_TIME
 
 
+def _frame_service_active():
+    """True if the inky-photo-frame systemd service is currently running."""
+    try:
+        out = subprocess.run(['systemctl', 'is-active', 'inky-photo-frame'],
+                             capture_output=True, text=True, timeout=3)
+        return out.stdout.strip() == 'active'
+    except (OSError, subprocess.SubprocessError):
+        return None  # unknown (e.g. systemctl unavailable) - frontend shows "Stopped" either way
+
+
 def _system_info():
     frame_start = _frame_process_start()
     disk = _disk_free()
     return {
+        'frame_active': _frame_service_active(),
         'disk_free': disk['free'],
         'disk_total': disk['total'],
         'disk_percent_used': disk['percent_used'],
@@ -600,6 +611,7 @@ PAGE = """<!doctype html>
   <div class="card">
     <div class="lbl">System info</div>
     <div class="info-grid" id="sysinfo">
+      <div class="info-box"><div class="k">Frame service</div><div class="v" id="si-status">–</div></div>
       <div class="info-box"><div class="k">Disk free</div><div class="v" id="si-disk">–</div></div>
       <div class="info-box"><div class="k">OS</div><div class="v" id="si-os" style="font-size:.85rem">–</div></div>
       <div class="info-box"><div class="k">Frame uptime</div><div class="v" id="si-uptime">–</div></div>
@@ -607,6 +619,18 @@ PAGE = """<!doctype html>
       <div class="info-box"><div class="k">Core voltage</div><div class="v" id="si-volt">–</div></div>
     <div class="info-box"><div class="k">Started</div><div class="v" id="si-start" style="font-size:.85rem">–</div></div>
     </div>
+    <button type="button" class="secondary" style="margin-top:14px" onclick="openLogs()">View logs</button>
+  </div>
+</div>
+
+<div class="lightbox" id="logbox">
+  <div class="lb-box" style="width:min(95vw,800px)">
+    <div class="lb-head">
+      <div class="lb-title">Frame service logs</div>
+      <button type="button" class="secondary" onclick="refreshLogs()">Refresh</button>
+      <button type="button" class="secondary" onclick="closeLogs()">Close</button>
+    </div>
+    <pre id="log-output" style="background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:12px; max-height:60vh; overflow:auto; font-size:.8rem; white-space:pre-wrap; word-break:break-all">Loading…</pre>
   </div>
 </div>
 
@@ -639,6 +663,8 @@ document.querySelectorAll('.sw').forEach(b => b.addEventListener('click', () => 
 // System info panel, refreshed periodically while the Settings tab is open
 function refreshSysInfo() {
   fetch('/api/status').then(r => r.json()).then(d => {
+    const statusEl = document.getElementById('si-status');
+    statusEl.textContent = d.frame_active ? '🟢 Running' : '🔴 Stopped';
     document.getElementById('si-disk').textContent = d.disk_free + ' free / ' + d.disk_total;
     document.getElementById('si-os').textContent = d.os_name;
     document.getElementById('si-uptime').textContent = d.frame_uptime;
@@ -886,6 +912,23 @@ function runPoweroff() {
     out.textContent = d.ok ? d.message + ' The page will stop responding.' : ('Error: ' + (d.error || 'unknown'));
   }).catch(() => { out.textContent = 'Request failed.'; });
 }
+
+// -------------------------------------------------------- logs viewer
+const logbox = document.getElementById('logbox'), logOutput = document.getElementById('log-output');
+function openLogs() {
+  logbox.classList.add('open');
+  refreshLogs();
+}
+function closeLogs() {
+  logbox.classList.remove('open');
+}
+function refreshLogs() {
+  logOutput.textContent = 'Loading…';
+  fetch('/api/logs').then(r => r.json()).then(d => {
+    logOutput.textContent = d.ok ? (d.logs || '(no log output)') : ('Error: ' + (d.error || 'unknown'));
+    logOutput.scrollTop = logOutput.scrollHeight;
+  }).catch(() => { logOutput.textContent = 'Request failed.'; });
+}
 </script>
 </main></body></html>"""
 
@@ -900,6 +943,17 @@ def index():
 @app.get('/api/status')
 def api_status():
     return jsonify(_system_info())
+
+
+@app.get('/api/logs')
+def api_logs():
+    """Last ~200 lines of the frame service's journal, for the web UI's
+    'View logs' popup (replaces having to SSH in and run journalctl)."""
+    ok, out = _run(['journalctl', '-u', 'inky-photo-frame', '-n', '200',
+                   '--no-pager', '-o', 'short-iso'], timeout=10)
+    if not ok and not out:
+        return jsonify({'ok': False, 'error': 'Could not read logs.'}), 500
+    return jsonify({'ok': True, 'logs': out})
 
 
 @app.post('/settings')

@@ -230,7 +230,8 @@ sudo chmod 440 "$SUDOERS_FILE"
 sudo visudo -cf "$SUDOERS_FILE" > /dev/null 2>&1 && print_status "Sudoers rule installed" || print_error "Sudoers rule failed validation - update/power buttons may not work"
 
 # ---------------------------------------------------------------------------
-# 9. GPIO permissions
+# 9. GPIO + journal permissions (journal access lets the web UI's "View
+#    logs" button read service logs without needing sudo)
 # ---------------------------------------------------------------------------
 print_info "Checking GPIO permissions..."
 if ! groups "$RUN_USER" | grep -q '\bgpio\b'; then
@@ -239,6 +240,15 @@ if ! groups "$RUN_USER" | grep -q '\bgpio\b'; then
     NEEDS_REBOOT_FOR_HW=true
 else
     print_status "GPIO permissions already OK"
+fi
+
+print_info "Checking systemd-journal permissions..."
+if ! groups "$RUN_USER" | grep -q '\bsystemd-journal\b'; then
+    sudo usermod -a -G systemd-journal "$RUN_USER"
+    print_status "User '$RUN_USER' added to systemd-journal group (reboot may be required)"
+    NEEDS_REBOOT_FOR_HW=true
+else
+    print_status "Journal permissions already OK"
 fi
 
 # ---------------------------------------------------------------------------
