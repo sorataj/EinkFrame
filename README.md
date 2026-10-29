@@ -34,6 +34,8 @@
 
 ## 🚀 Installing on a new Raspberry Pi
 
+> ⚠️ **Important:** when flashing Raspberry Pi OS (e.g. with Raspberry Pi Imager), the main user account **must be named `pi`** — the installer and all paths (`/home/pi/...`) assume this username. You can also set the device's **hostname** at the same time (e.g. `inkyimpression`), which is how you'll reach the web app afterwards (see below).
+
 Flash Raspberry Pi OS, connect to WiFi and SSH, then run:
 
 ```bash
@@ -51,10 +53,12 @@ Manage your photo frame from any phone, tablet, or computer on the same WiFi net
 Open a web browser and go to:
 
 ```
-http://inkyimpression.local
+http://<your-pi-hostname>.local
 ```
 
-(No port number needed — it's served on the standard web port. If your browser tries to redirect to `https://` and fails, type the full `http://` prefix explicitly, or disable "HTTPS-only mode" for this address in your browser's settings.)
+Replace `<your-pi-hostname>` with whatever hostname you set for the Pi when flashing it (e.g. `http://inkyimpression.local` if you named it `inkyimpression`). If you didn't set one, the default Raspberry Pi OS hostname is `raspberrypi`, so it would be `http://raspberrypi.local`.
+
+No port number needed — it's served on the standard web port. If your browser tries to redirect to `https://` and fails, type the full `http://` prefix explicitly, or disable "HTTPS-only mode" for this address in your browser's settings.
 
 ### What you can do
 
