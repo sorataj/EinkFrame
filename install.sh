@@ -15,9 +15,14 @@
 #   4. Copies the web UI into its own standalone folder /home/pi/inky-webui
 #   5. Creates /home/pi/Images for photos
 #   6. Installs & enables two systemd services: inky-photo-frame, inky-webui
-#   7. Adds the pi user to the gpio group
-#   8. Disables the Pi's activity LED (no light pollution at night)
-#   9. Sets up log rotation
+#   7. Enables I2C and SPI (required for the Inky display hardware)
+#   8. Grants passwordless sudo for the web UI's update/restart/power buttons
+#   9. Adds the pi user to the gpio group
+#   10. Disables the Pi's activity LED (no light pollution at night)
+#   11. Sets up log rotation
+#
+# If I2C/SPI/GPIO group membership needed changing, a reboot is required
+# afterwards for the e-ink display to work (the script will tell you).
 #
 # After install, manage the services with standard systemd commands, e.g.:
 #   sudo systemctl status inky-photo-frame
@@ -176,7 +181,45 @@ sudo systemctl enable inky-photo-frame.service inky-webui.service > /dev/null 2>
 print_status "Services enabled to start on boot"
 
 # ---------------------------------------------------------------------------
-# 7. Passwordless sudo for the web UI's Update/Restart/Power-off buttons
+# 7. Enable I2C and SPI (required by the Inky library: I2C reads the
+#    display's EEPROM to auto-detect the model, SPI drives the panel).
+#    Commented out by default on a fresh Raspberry Pi OS image.
+# ---------------------------------------------------------------------------
+print_info "Checking I2C and SPI are enabled..."
+CONFIG_TXT="/boot/firmware/config.txt"
+[ -f "$CONFIG_TXT" ] || CONFIG_TXT="/boot/config.txt"
+NEEDS_REBOOT_FOR_HW=false
+
+if [ -f "$CONFIG_TXT" ]; then
+    if grep -q '^dtparam=i2c_arm=on' "$CONFIG_TXT"; then
+        print_status "I2C already enabled"
+    elif grep -q '^#dtparam=i2c_arm=on' "$CONFIG_TXT"; then
+        sudo sed -i 's/^#dtparam=i2c_arm=on/dtparam=i2c_arm=on/' "$CONFIG_TXT"
+        print_status "I2C enabled (reboot required)"
+        NEEDS_REBOOT_FOR_HW=true
+    else
+        echo "dtparam=i2c_arm=on" | sudo tee -a "$CONFIG_TXT" > /dev/null
+        print_status "I2C enabled (reboot required)"
+        NEEDS_REBOOT_FOR_HW=true
+    fi
+
+    if grep -q '^dtparam=spi=on' "$CONFIG_TXT"; then
+        print_status "SPI already enabled"
+    elif grep -q '^#dtparam=spi=on' "$CONFIG_TXT"; then
+        sudo sed -i 's/^#dtparam=spi=on/dtparam=spi=on/' "$CONFIG_TXT"
+        print_status "SPI enabled (reboot required)"
+        NEEDS_REBOOT_FOR_HW=true
+    else
+        echo "dtparam=spi=on" | sudo tee -a "$CONFIG_TXT" > /dev/null
+        print_status "SPI enabled (reboot required)"
+        NEEDS_REBOOT_FOR_HW=true
+    fi
+else
+    print_error "Could not find $CONFIG_TXT - enable I2C and SPI manually with raspi-config"
+fi
+
+# ---------------------------------------------------------------------------
+# 8. Passwordless sudo for the web UI's Update/Restart/Power-off buttons
 # ---------------------------------------------------------------------------
 print_info "Granting passwordless sudo for service restart / reboot / poweroff..."
 SUDOERS_FILE=/etc/sudoers.d/inky-webui
@@ -187,18 +230,19 @@ sudo chmod 440 "$SUDOERS_FILE"
 sudo visudo -cf "$SUDOERS_FILE" > /dev/null 2>&1 && print_status "Sudoers rule installed" || print_error "Sudoers rule failed validation - update/power buttons may not work"
 
 # ---------------------------------------------------------------------------
-# 8. GPIO permissions
+# 9. GPIO permissions
 # ---------------------------------------------------------------------------
 print_info "Checking GPIO permissions..."
 if ! groups "$RUN_USER" | grep -q '\bgpio\b'; then
     sudo usermod -a -G gpio "$RUN_USER"
     print_status "User '$RUN_USER' added to gpio group (reboot may be required)"
+    NEEDS_REBOOT_FOR_HW=true
 else
     print_status "GPIO permissions already OK"
 fi
 
 # ---------------------------------------------------------------------------
-# 9. Disable Raspberry Pi activity LED
+# 10. Disable Raspberry Pi activity LED
 # ---------------------------------------------------------------------------
 print_info "Setting up LED disable service (no light pollution at night)..."
 sudo tee /etc/systemd/system/disable-leds.service > /dev/null << 'EOF'
@@ -221,7 +265,7 @@ sudo systemctl start disable-leds.service > /dev/null 2>&1
 print_status "LED disable service installed and enabled"
 
 # ---------------------------------------------------------------------------
-# 10. Log rotation
+# 11. Log rotation
 # ---------------------------------------------------------------------------
 if [ -f "$INSTALL_DIR/logrotate.conf" ]; then
     print_info "Installing logrotate configuration..."
@@ -232,7 +276,7 @@ if [ -f "$INSTALL_DIR/logrotate.conf" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# 11. Start services
+# 12. Start services
 # ---------------------------------------------------------------------------
 print_info "Starting services..."
 sudo systemctl restart inky-photo-frame.service
@@ -270,5 +314,12 @@ echo ""
 print_info "Web app:  http://$HOSTNAME.local  (or http://$IP_ADDR)"
 print_info "Photos folder: $PHOTOS_DIR"
 print_info "Logs: sudo journalctl -u inky-photo-frame -f"
-print_info "A reboot is recommended if this is the first install (for GPIO group membership)."
+if [ "$NEEDS_REBOOT_FOR_HW" = true ]; then
+    echo ""
+    echo -e "${YELLOW}⚠️  A REBOOT IS REQUIRED now that I2C/SPI/GPIO permissions were changed.${NC}"
+    echo -e "${YELLOW}   Without a reboot, the e-ink display will fail with 'No EEPROM detected'.${NC}"
+    print_info "Run: sudo reboot"
+else
+    print_info "A reboot is recommended if this is the first install (for GPIO group membership)."
+fi
 echo ""
