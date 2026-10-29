@@ -176,7 +176,18 @@ sudo systemctl enable inky-photo-frame.service inky-webui.service > /dev/null 2>
 print_status "Services enabled to start on boot"
 
 # ---------------------------------------------------------------------------
-# 7. GPIO permissions
+# 7. Passwordless sudo for the web UI's Update/Restart/Power-off buttons
+# ---------------------------------------------------------------------------
+print_info "Granting passwordless sudo for service restart / reboot / poweroff..."
+SUDOERS_FILE=/etc/sudoers.d/inky-webui
+sudo tee "$SUDOERS_FILE" > /dev/null << EOF
+$RUN_USER ALL=(ALL) NOPASSWD: /bin/systemctl restart inky-photo-frame, /bin/systemctl restart inky-webui, /bin/systemctl restart inky-photo-frame inky-webui, /sbin/reboot, /sbin/poweroff
+EOF
+sudo chmod 440 "$SUDOERS_FILE"
+sudo visudo -cf "$SUDOERS_FILE" > /dev/null 2>&1 && print_status "Sudoers rule installed" || print_error "Sudoers rule failed validation - update/power buttons may not work"
+
+# ---------------------------------------------------------------------------
+# 8. GPIO permissions
 # ---------------------------------------------------------------------------
 print_info "Checking GPIO permissions..."
 if ! groups "$RUN_USER" | grep -q '\bgpio\b'; then
@@ -187,7 +198,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 8. Disable Raspberry Pi activity LED
+# 9. Disable Raspberry Pi activity LED
 # ---------------------------------------------------------------------------
 print_info "Setting up LED disable service (no light pollution at night)..."
 sudo tee /etc/systemd/system/disable-leds.service > /dev/null << 'EOF'
@@ -210,7 +221,7 @@ sudo systemctl start disable-leds.service > /dev/null 2>&1
 print_status "LED disable service installed and enabled"
 
 # ---------------------------------------------------------------------------
-# 9. Log rotation
+# 10. Log rotation
 # ---------------------------------------------------------------------------
 if [ -f "$INSTALL_DIR/logrotate.conf" ]; then
     print_info "Installing logrotate configuration..."
@@ -221,7 +232,7 @@ if [ -f "$INSTALL_DIR/logrotate.conf" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# 10. Start services
+# 11. Start services
 # ---------------------------------------------------------------------------
 print_info "Starting services..."
 sudo systemctl restart inky-photo-frame.service

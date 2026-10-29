@@ -65,6 +65,14 @@ DISPLAY_HEIGHT = int(os.environ.get('INKY_DISPLAY_HEIGHT', '1200'))
 
 SEQ_RE = re.compile(r'^(\d{4,})$')
 
+# Paths used by the "Update from GitHub" button. INSTALL_DIR is the git
+# clone; WEBUI_DIR is where this script's own standalone copy lives (a
+# separate folder outside the repo, kept in sync by the update route).
+INSTALL_DIR = Path(os.environ.get('INKY_INSTALL_DIR', '/home/pi/inky-photo-frame'))
+WEBUI_SELF_DIR = Path(os.environ.get('INKY_WEBUI_DIR', '/home/pi/inky-webui'))
+VENV_DIR = Path(os.environ.get('INKY_VENV_DIR', '/home/pi/.virtualenvs/pimoroni'))
+GITHUB_REPO_URL = 'https://github.com/sorataj/EinkFrame'
+
 SETTINGS_FILE = DATA_DIR / '.inky_settings.json'   # read by the frame software
 DEFAULT_SETTINGS = {
     'orientation': 'landscape', 'flip': False, 'collage': False,
@@ -533,6 +541,25 @@ PAGE = """<!doctype html>
   </form>
 
   <div class="card">
+    <div class="lbl">Software update</div>
+    <p class="muted" style="margin:0 0 10px">Pulls the latest version from GitHub, updates dependencies, and restarts the frame and web app.</p>
+    <button type="button" id="btn-update" onclick="runUpdate()">Update from GitHub</button>
+    <div id="update-status" class="muted" style="margin-top:8px"></div>
+  </div>
+
+  <div class="card">
+    <div class="lbl">Power</div>
+    <p class="muted" style="margin:0 0 10px">Restart or power off the Raspberry Pi. After powering off, unplug/replug power to turn it back on.</p>
+    <div class="lb-actions">
+      <div class="left">
+        <button type="button" class="secondary" onclick="runReboot()">Restart Raspberry Pi</button>
+        <button type="button" class="secondary" style="color:var(--bad)" onclick="runPoweroff()">Power off Raspberry Pi</button>
+      </div>
+    </div>
+    <div id="power-status" class="muted" style="margin-top:8px"></div>
+  </div>
+
+  <div class="card">
     <div class="lbl">System info</div>
     <div class="info-grid" id="sysinfo">
       <div class="info-box"><div class="k">Disk free</div><div class="v" id="si-disk">–</div></div>
@@ -540,10 +567,14 @@ PAGE = """<!doctype html>
       <div class="info-box"><div class="k">Frame uptime</div><div class="v" id="si-uptime">–</div></div>
       <div class="info-box"><div class="k">CPU temp</div><div class="v" id="si-temp">–</div></div>
       <div class="info-box"><div class="k">Core voltage</div><div class="v" id="si-volt">–</div></div>
-      <div class="info-box"><div class="k">Started</div><div class="v" id="si-start" style="font-size:.85rem">–</div></div>
+    <div class="info-box"><div class="k">Started</div><div class="v" id="si-start" style="font-size:.85rem">–</div></div>
     </div>
   </div>
 </div>
+
+<p class="muted" style="text-align:center; margin:24px 0 8px">
+  <a href="{{ github_url }}" target="_blank" rel="noopener" style="color:inherit">{{ github_url }}</a>
+</p>
 
 <script>
 // Tabs
@@ -786,6 +817,37 @@ function saveEdit() {
     }
   }).catch(() => { lbStatus.textContent = 'Request failed.'; });
 }
+
+// -------------------------------------------------------- update / power
+function runUpdate() {
+  const btn = document.getElementById('btn-update'), out = document.getElementById('update-status');
+  if (!confirm('Update to the latest version from GitHub and restart the services?')) return;
+  btn.disabled = true;
+  out.textContent = 'Updating… this can take a minute, please wait.';
+  fetch('/update', { method: 'POST' }).then(r => r.json()).then(d => {
+    out.textContent = d.ok ? d.message : ('Error: ' + (d.error || 'unknown'));
+    if (d.ok) setTimeout(() => location.reload(), 8000);
+    else btn.disabled = false;
+  }).catch(() => { out.textContent = 'Request failed.'; btn.disabled = false; });
+}
+
+function runReboot() {
+  if (!confirm('Restart the Raspberry Pi now?')) return;
+  const out = document.getElementById('power-status');
+  out.textContent = 'Restarting…';
+  fetch('/reboot', { method: 'POST' }).then(r => r.json()).then(d => {
+    out.textContent = d.ok ? d.message + ' The page will stop responding; reconnect in about a minute.' : ('Error: ' + (d.error || 'unknown'));
+  }).catch(() => { out.textContent = 'Request failed.'; });
+}
+
+function runPoweroff() {
+  if (!confirm('Power off the Raspberry Pi now? You will need to unplug and replug power to turn it back on.')) return;
+  const out = document.getElementById('power-status');
+  out.textContent = 'Shutting down…';
+  fetch('/poweroff', { method: 'POST' }).then(r => r.json()).then(d => {
+    out.textContent = d.ok ? d.message + ' The page will stop responding.' : ('Error: ' + (d.error || 'unknown'));
+  }).catch(() => { out.textContent = 'Request failed.'; });
+}
 </script>
 </main></body></html>"""
 
@@ -793,7 +855,8 @@ function saveEdit() {
 @app.get('/')
 def index():
     return render_template_string(PAGE, photos=_list_photos(), s=_load_settings(),
-                                  max_border=MAX_BORDER_WIDTH, msg=request.args.get('msg', ''))
+                                  max_border=MAX_BORDER_WIDTH, msg=request.args.get('msg', ''),
+                                  github_url=GITHUB_REPO_URL)
 
 
 @app.get('/api/status')
@@ -1020,6 +1083,89 @@ def show_now(name):
     except OSError as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
     return jsonify({'ok': True})
+
+
+# -------------------------------------------------------- update / power
+
+def _run(cmd, timeout=60):
+    """Run a shell command, returning (ok, output)."""
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        output = (out.stdout or '') + (out.stderr or '')
+        return out.returncode == 0, output.strip()
+    except Exception as e:
+        return False, str(e)
+
+
+def _run_delayed(cmd, delay=2):
+    """Run a command in a detached background process after a short delay,
+    so the HTTP response reaches the browser before services restart or the
+    Pi reboots/powers off."""
+    import threading
+
+    def worker():
+        time.sleep(delay)
+        subprocess.run(cmd)
+
+    threading.Thread(target=worker, daemon=True).start()
+
+
+@app.post('/update')
+def update():
+    """Pull the latest code from GitHub, resync the standalone webui copy,
+    upgrade Python dependencies, then restart both services."""
+    if not (INSTALL_DIR / '.git').exists():
+        return jsonify({'ok': False, 'error': f'{INSTALL_DIR} is not a git repository.'}), 400
+
+    ok, out = _run(['git', '-C', str(INSTALL_DIR), 'fetch', '--quiet'])
+    if not ok:
+        return jsonify({'ok': False, 'error': f'git fetch failed: {out}'}), 500
+
+    ok, out = _run(['git', '-C', str(INSTALL_DIR), 'reset', '--hard', 'origin/main'])
+    if not ok:
+        return jsonify({'ok': False, 'error': f'git reset failed: {out}'}), 500
+
+    new_commit = _run(['git', '-C', str(INSTALL_DIR), 'rev-parse', '--short', 'HEAD'])[1]
+
+    # Resync this webui's own standalone copy from the freshly-pulled repo.
+    src = INSTALL_DIR / 'webui' / 'inky_webui.py'
+    if src.is_file():
+        try:
+            WEBUI_SELF_DIR.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, WEBUI_SELF_DIR / 'inky_webui.py')
+        except OSError as e:
+            return jsonify({'ok': False, 'error': f'Could not update webui copy: {e}'}), 500
+
+    # Upgrade Python dependencies in the venv (best-effort, non-fatal).
+    pip = VENV_DIR / 'bin' / 'pip'
+    deps_msg = ''
+    if pip.is_file():
+        ok_pip, out_pip = _run([str(pip), 'install', '--upgrade', '--quiet',
+                               'inky', 'pillow', 'pillow-heif', 'lgpio', 'RPi.GPIO',
+                               'gpiozero', 'watchdog', 'flask', 'waitress', 'psutil'],
+                               timeout=180)
+        deps_msg = ' Dependencies upgraded.' if ok_pip else f' (dependency upgrade warning: {out_pip[:200]})'
+
+    # Restart both services shortly after responding, so this request (and
+    # this webui process restarting itself) completes cleanly first.
+    _run_delayed(['sudo', 'systemctl', 'restart', 'inky-photo-frame', 'inky-webui'])
+
+    return jsonify({'ok': True,
+                    'message': f'Updated to commit {new_commit}.{deps_msg} Restarting services…'})
+
+
+@app.post('/reboot')
+def reboot():
+    """Reboot the Raspberry Pi after a short delay."""
+    _run_delayed(['sudo', 'reboot'])
+    return jsonify({'ok': True, 'message': 'Rebooting now…'})
+
+
+@app.post('/poweroff')
+def poweroff():
+    """Power off the Raspberry Pi after a short delay."""
+    _run_delayed(['sudo', 'poweroff'])
+    return jsonify({'ok': True, 'message': 'Shutting down now…'})
 
 
 # ------------------------------------------------------------------- main
