@@ -18,7 +18,7 @@
 #   7. Enables I2C and SPI (required for the Inky display hardware)
 #   8. Grants passwordless sudo for the web UI's update/restart/power buttons
 #   9. Adds the pi user to the gpio group
-#   10. Disables the Pi's activity LED (no light pollution at night)
+#   10. Disables the Pi's activity and power LEDs (no light pollution at night)
 #   11. Sets up log rotation
 #
 # If I2C/SPI/GPIO group membership needed changing, a reboot is required
@@ -242,7 +242,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 10. Disable Raspberry Pi activity LED
+# 10. Disable Raspberry Pi LEDs (activity + power, no light pollution)
 # ---------------------------------------------------------------------------
 print_info "Setting up LED disable service (no light pollution at night)..."
 sudo tee /etc/systemd/system/disable-leds.service > /dev/null << 'EOF'
@@ -252,8 +252,10 @@ After=multi-user.target
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh -c 'echo none > /sys/class/leds/ACT/trigger'
-ExecStart=/bin/sh -c 'echo 1 > /sys/class/leds/ACT/brightness'
+ExecStart=/bin/sh -c 'echo none > /sys/class/leds/ACT/trigger || true'
+ExecStart=/bin/sh -c 'echo 1 > /sys/class/leds/ACT/brightness || true'
+ExecStart=/bin/sh -c 'echo none > /sys/class/leds/default-on/trigger || true'
+ExecStart=/bin/sh -c 'echo 0 > /sys/class/leds/default-on/brightness || true'
 RemainAfterExit=yes
 
 [Install]
