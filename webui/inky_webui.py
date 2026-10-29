@@ -84,6 +84,13 @@ DEFAULT_SETTINGS = {
     'sleep_end_hour': 0,
 }
 MAX_BORDER_WIDTH = 20
+
+# Color mode: a separate file from the main settings, since it's also
+# written by the frame's own physical buttons (cycle/reset) - this file is
+# the single shared source of truth for both the buttons and the web UI.
+COLOR_MODE_FILE = DATA_DIR / '.inky_color_mode.json'
+COLOR_MODES = ('spectra_palette', 'warmth_boost', 'pimoroni')
+DEFAULT_COLOR_MODE = 'spectra_palette'
 COLOR_RE = re.compile(r'#[0-9a-fA-F]{6}')
 
 ALLOWED = {'.jpg', '.jpeg', '.png', '.heic', '.heif', '.bmp', '.gif', '.webp'}
@@ -214,6 +221,25 @@ def _save_settings(settings):
     tmp = SETTINGS_FILE.with_name(SETTINGS_FILE.name + '.tmp')
     tmp.write_text(json.dumps(settings))
     os.replace(tmp, SETTINGS_FILE)
+
+
+def _load_color_mode():
+    """Current color mode, shared with the frame's physical buttons via the
+    same file. Falls back to the default if missing/invalid."""
+    try:
+        data = json.loads(COLOR_MODE_FILE.read_text())
+        mode = data.get('color_mode')
+        if mode in COLOR_MODES:
+            return mode
+    except (OSError, ValueError, AttributeError):
+        pass
+    return DEFAULT_COLOR_MODE
+
+
+def _save_color_mode(mode):
+    tmp = COLOR_MODE_FILE.with_name(COLOR_MODE_FILE.name + '.tmp')
+    tmp.write_text(json.dumps({'color_mode': mode}))
+    os.replace(tmp, COLOR_MODE_FILE)
 
 
 # ------------------------------------------------------------- system info
@@ -487,6 +513,18 @@ PAGE = """<!doctype html>
         <label><input type="radio" name="collage" value="on" {{ 'checked' if s.collage }}>On</label>
       </div>
       <p class="muted" style="margin:0">When on, each screen shows 2 or 3 random photos in a random layout.</p>
+    </div>
+
+    <div class="card">
+      <div class="lbl">Color mode</div>
+      <div class="mode">
+        <label><input type="radio" name="color_mode" value="spectra_palette" {{ 'checked' if color_mode == 'spectra_palette' }}>⭐ Spectra palette</label>
+        <label><input type="radio" name="color_mode" value="warmth_boost" {{ 'checked' if color_mode == 'warmth_boost' }}>🔥 Warmth boost</label>
+        <label><input type="radio" name="color_mode" value="pimoroni" {{ 'checked' if color_mode == 'pimoroni' }}>🔵 Pimoroni default</label>
+      </div>
+      <p class="muted" style="margin:0"><b>Spectra palette</b> &ndash; accurate, natural colors (recommended for Spectra 6 displays).
+      <b>Warmth boost</b> &ndash; warmer tones, best for portraits and skin tones.
+      <b>Pimoroni default</b> &ndash; official library behavior, no extra processing.</p>
     </div>
 
     <div class="card">
@@ -856,7 +894,7 @@ function runPoweroff() {
 def index():
     return render_template_string(PAGE, photos=_list_photos(), s=_load_settings(),
                                   max_border=MAX_BORDER_WIDTH, msg=request.args.get('msg', ''),
-                                  github_url=GITHUB_REPO_URL)
+                                  github_url=GITHUB_REPO_URL, color_mode=_load_color_mode())
 
 
 @app.get('/api/status')
@@ -867,6 +905,7 @@ def api_status():
 @app.post('/settings')
 def apply_settings():
     current = _load_settings()
+    current_color_mode = _load_color_mode()
     form = request.form
     new = _normalize({
         'orientation': form.get('orientation', current['orientation']),
@@ -880,11 +919,18 @@ def apply_settings():
         'sleep_start_hour': form.get('sleep_start_hour', current['sleep_start_hour']),
         'sleep_end_hour': form.get('sleep_end_hour', current['sleep_end_hour']),
     })
-    if new == current:
+    new_color_mode = form.get('color_mode', current_color_mode)
+    if new_color_mode not in COLOR_MODES:
+        new_color_mode = current_color_mode
+
+    if new == current and new_color_mode == current_color_mode:
         return redirect('/?msg=' + quote('Nothing changed.'))
     _ensure_dirs()
     try:
-        _save_settings(new)
+        if new != current:
+            _save_settings(new)
+        if new_color_mode != current_color_mode:
+            _save_color_mode(new_color_mode)
     except OSError as e:
         return redirect('/?msg=' + quote(f'Could not save the settings: {e}'))
     return redirect('/?msg=' + quote(

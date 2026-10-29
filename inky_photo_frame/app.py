@@ -83,6 +83,7 @@ class InkyPhotoFrame:
 
         # Settings the screen was last drawn with (to notice changes from the web UI)
         self._applied_settings = self._read_settings()
+        self._applied_color_mode = self.color_mode
 
         # Storage management - cleanup old photos periodically
         self.last_cleanup = datetime.now()
@@ -339,6 +340,25 @@ class InkyPhotoFrame:
             self.display_photo(self.history['current'])
         except Exception as e:
             logging.error(f'Error redrawing after settings change: {e}')
+
+    def _apply_color_mode_if_changed(self):
+        """Pick up a color mode change made from the web UI (Settings tab) or
+        from the physical buttons (both read/write the same file), and
+        redraw the current screen if it changed. Mirrors
+        _apply_settings_if_changed, using the same file-polling mechanism."""
+        new_mode = self.load_color_mode()
+        if new_mode == self._applied_color_mode:
+            return
+        logging.info(f'Color mode changed to {new_mode}, redrawing')
+        self.color_mode = new_mode
+        self._applied_color_mode = new_mode
+        self.saturation = (WARMTH_BOOST_CONFIG['saturation']
+                           if new_mode == 'warmth_boost' else SATURATION)
+        if self.history['current']:
+            try:
+                self.display_photo(self.history['current'])
+            except Exception as e:
+                logging.error(f'Error redrawing after color mode change: {e}')
 
     def _check_show_now(self):
         """If the web UI's lightbox requested a specific photo be shown
@@ -717,6 +737,7 @@ class InkyPhotoFrame:
                     time_module.sleep(5)
                     self._check_show_now()
                     self._apply_settings_if_changed()
+                    self._apply_color_mode_if_changed()
 
                 # Check for daily change
                 if self.should_change_photo():
