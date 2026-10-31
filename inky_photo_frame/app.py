@@ -28,7 +28,7 @@ SETTINGS_FILE = Path(PHOTOS_DIR).parent / '.inky_settings.json'
 # "Show this photo now" command file, written by the web UI's lightbox
 SHOW_NOW_FILE = Path(PHOTOS_DIR).parent / '.inky_show_now'
 DEFAULT_SETTINGS = {
-    'orientation': 'landscape', 'flip': False, 'collage': False,
+    'orientation': 'landscape', 'flip': False, 'collage_mode': 'single',
     'border_width': 6, 'border_color': '#000000',
     'change_mode': 'interval',
     'change_interval_minutes': CHANGE_INTERVAL_MINUTES,
@@ -294,7 +294,11 @@ class InkyPhotoFrame:
         if data.get('orientation') in ('landscape', 'portrait'):
             out['orientation'] = data['orientation']
         out['flip'] = bool(data.get('flip', False))
-        out['collage'] = bool(data.get('collage', False))
+        if data.get('collage_mode') in ('single', 'collage', 'random'):
+            out['collage_mode'] = data['collage_mode']
+        elif 'collage' in data:
+            # Backward compatibility with the old boolean setting
+            out['collage_mode'] = 'collage' if data.get('collage') else 'single'
         try:
             out['border_width'] = min(MAX_BORDER_WIDTH, max(0, int(data.get('border_width', 6))))
         except (TypeError, ValueError):
@@ -419,25 +423,43 @@ class InkyPhotoFrame:
         except Exception as e:
             logging.error(f'Error showing requested photo: {e}')
 
+    # In 'random' collage_mode, this is the chance a given photo change
+    # shows a single photo instead of a collage (so 1 - this = collage chance).
+    RANDOM_MODE_SINGLE_CHANCE = 0.25
+
     def _collage_for(self, lead):
         """Return (extras, seed): the other photos to show next to `lead`, and the
         seed that fixes the random layout. Empty extras = show a single photo.
 
-        In collage mode a screen shows 2 or 3 photos (chosen at random). The extras
-        are taken from the front of the pending queue and marked as shown, so every
-        photo appears once per cycle. The choice is remembered, so a retry or a
-        reboot redraws the same collage instead of picking new photos.
+        collage_mode controls the behaviour:
+        - 'single':  always show one photo
+        - 'collage': always show 2 or 3 photos (chosen at random)
+        - 'random':  each new lead photo rolls once - 25% chance of a single
+          photo, 75% chance of a collage (RANDOM_MODE_SINGLE_CHANCE)
+
+        Whatever is decided for a given lead photo is remembered (sticky),
+        so repeated calls for the same lead (e.g. the 5-second settings
+        poll, or a retry/reboot) redraw the exact same thing instead of
+        re-rolling or picking new extra photos each time.
         """
         try:
-            if not self._read_settings()['collage']:
+            mode = self._read_settings()['collage_mode']
+            if mode == 'single':
                 return [], None
 
             with self.lock:
                 saved = self.history.get('collage') or {}
-                extras = saved.get('extras', [])
-                if (saved.get('lead') == lead and extras
-                        and all(Path(p).exists() for p in extras)):
-                    return list(extras), saved.get('seed')
+                if saved.get('lead') == lead and 'extras' in saved:
+                    extras = saved.get('extras', [])
+                    if not extras or all(Path(p).exists() for p in extras):
+                        return list(extras), saved.get('seed')
+
+                show_single = (mode == 'random'
+                              and random.random() < self.RANDOM_MODE_SINGLE_CHANCE)
+                if show_single:
+                    self.history['collage'] = {'lead': lead, 'extras': [], 'seed': None}
+                    self.save_history()
+                    return [], None
 
                 wanted = random.choice((1, 2))      # 2 or 3 photos in total
                 extras = []

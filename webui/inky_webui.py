@@ -75,7 +75,7 @@ GITHUB_REPO_URL = 'https://github.com/sorataj/EinkFrame'
 
 SETTINGS_FILE = DATA_DIR / '.inky_settings.json'   # read by the frame software
 DEFAULT_SETTINGS = {
-    'orientation': 'landscape', 'flip': False, 'collage': False,
+    'orientation': 'landscape', 'flip': False, 'collage_mode': 'single',
     'border_width': 6, 'border_color': '#000000',
     'change_mode': 'interval',
     'change_interval_minutes': 30,
@@ -187,7 +187,11 @@ def _normalize(data):
     if data.get('orientation') in ('landscape', 'portrait'):
         out['orientation'] = data['orientation']
     out['flip'] = bool(data.get('flip', False))
-    out['collage'] = bool(data.get('collage', False))
+    if data.get('collage_mode') in ('single', 'collage', 'random'):
+        out['collage_mode'] = data['collage_mode']
+    elif 'collage' in data:
+        # Backward compatibility with the old boolean setting
+        out['collage_mode'] = 'collage' if data.get('collage') else 'single'
     try:
         out['border_width'] = min(MAX_BORDER_WIDTH, max(0, int(data.get('border_width', 6))))
     except (TypeError, ValueError):
@@ -520,10 +524,13 @@ PAGE = """<!doctype html>
 
       <div class="lbl sep">Collage mode</div>
       <div class="mode">
-        <label><input type="radio" name="collage" value="off" {{ 'checked' if not s.collage }}>Off</label>
-        <label><input type="radio" name="collage" value="on" {{ 'checked' if s.collage }}>On</label>
+        <label><input type="radio" name="collage_mode" value="single" {{ 'checked' if s.collage_mode == 'single' }}>Single photo</label>
+        <label><input type="radio" name="collage_mode" value="collage" {{ 'checked' if s.collage_mode == 'collage' }}>Collage</label>
+        <label><input type="radio" name="collage_mode" value="random" {{ 'checked' if s.collage_mode == 'random' }}>Random</label>
       </div>
-      <p class="muted" style="margin:0">When on, each screen shows 2 or 3 random photos in a random layout.</p>
+      <p class="muted" style="margin:0"><b>Single photo</b> &ndash; one photo per screen.
+      <b>Collage</b> &ndash; every screen shows 2 or 3 random photos in a random layout.
+      <b>Random</b> &ndash; mixes both: about 1 in 4 screens is a single photo, the rest are collages.</p>
     </div>
 
     <div class="card">
@@ -964,7 +971,7 @@ def apply_settings():
     new = _normalize({
         'orientation': form.get('orientation', current['orientation']),
         'flip': form.get('flip') == '1',
-        'collage': form.get('collage', 'on' if current['collage'] else 'off') == 'on',
+        'collage_mode': form.get('collage_mode', current['collage_mode']),
         'border_width': form.get('border_width', current['border_width']),
         'border_color': form.get('border_color', current['border_color']),
         'change_mode': form.get('change_mode', current['change_mode']),
