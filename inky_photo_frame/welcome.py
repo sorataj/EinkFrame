@@ -32,13 +32,16 @@ def get_credentials():
     return "inky", "inkyimpression73_2025"
 
 
-def display_welcome(display, width, height):
+def display_welcome(display, width, height, display_manager=None):
     """Display welcome screen with connection instructions - LARGE readable text.
 
     Args:
         display: Inky display object (to call set_image() and show())
         width: int, display width in pixels
         height: int, display height in pixels
+        display_manager: optional DisplayManager - if given, show() is called
+            with a hard timeout via show_with_timeout() so a hardware hang
+            can't freeze the app forever (same protection as photo display).
     """
     logging.info('Displaying welcome screen')
 
@@ -114,4 +117,8 @@ def display_welcome(display, width, height):
         display.set_image(img, saturation=0.6)
     except TypeError:
         display.set_image(img)
-    display.show()
+    if display_manager is not None:
+        if not display_manager.show_with_timeout():
+            logging.error('❌ Welcome screen did not refresh in time')
+    else:
+        display.show()

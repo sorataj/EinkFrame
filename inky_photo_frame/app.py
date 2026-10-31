@@ -509,7 +509,9 @@ class InkyPhotoFrame:
                 self.display.set_image(img)
 
             logging.info('📺 Displaying on screen...')
-            self.display.show()
+            if not self.display_manager.show_with_timeout():
+                logging.error(f'❌ Display did not refresh in time for: {Path(photo_path).name}')
+                return False
             logging.info(f'✅ Successfully displayed: {Path(photo_path).name}')
 
             # Update display count in metadata
@@ -751,7 +753,7 @@ class InkyPhotoFrame:
 
         if not photos:
             # No photos yet, show welcome screen
-            display_welcome(self.display, self.width, self.height)
+            display_welcome(self.display, self.width, self.height, self.display_manager)
             return
 
         if self.should_change_photo():
@@ -811,7 +813,7 @@ class InkyPhotoFrame:
 
                     # Show welcome if no photos
                     if not get_all_photos() and self.history['current'] is None:
-                        display_welcome(self.display, self.width, self.height)
+                        display_welcome(self.display, self.width, self.height, self.display_manager)
 
                 # Storage cleanup check every 6 hours
                 time_since_cleanup = datetime.now() - self.last_cleanup

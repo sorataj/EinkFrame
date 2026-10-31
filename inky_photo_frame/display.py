@@ -59,6 +59,59 @@ class DisplayManager:
             return self.initialize()
         return self._display
 
+    # Guards display.show() calls so a hardware hang (e.g. the panel's busy
+    # signal never clearing) can't freeze the whole app forever - see
+    # show_with_timeout below.
+    _show_lock = threading.Lock()
+
+    def show_with_timeout(self, timeout=90):
+        """Call display.show() with a hard timeout.
+
+        The Inky library's show() blocks waiting on the panel's hardware
+        busy signal, normally for 20-40s. If that signal ever fails to
+        clear (flaky cable, driver glitch, etc.), show() can hang forever -
+        and since Python can't forcibly kill a thread, a plain blocking
+        call would freeze the entire app's main loop (and with it, button
+        presses and settings polling) permanently.
+
+        This runs show() in a background thread and waits up to `timeout`
+        seconds. If it doesn't finish in time, the stuck call is abandoned
+        (left running in its own thread) and this returns False - letting
+        the caller log an error and move on instead of hanging. A lock
+        ensures at most one show() call (including an abandoned, still-
+        running one) touches the hardware at a time; if a previous call is
+        still stuck when a new one is attempted, the new one is skipped
+        immediately rather than queuing behind it indefinitely.
+        """
+        if not self._show_lock.acquire(blocking=False):
+            logging.warning('⚠️ Display still mid-refresh from a previous call '
+                           '(possibly hung) - skipping this update')
+            return False
+
+        result = {'error': None}
+
+        def worker():
+            try:
+                self._display.show()
+            except Exception as e:
+                result['error'] = e
+            finally:
+                self._show_lock.release()
+
+        t = threading.Thread(target=worker, daemon=True)
+        t.start()
+        t.join(timeout)
+
+        if t.is_alive():
+            logging.error(f'❌ display.show() did not finish within {timeout}s - '
+                         'hardware may be hung. Abandoning this call; further '
+                         'updates will be skipped until it completes.')
+            return False
+
+        if result['error']:
+            raise result['error']
+        return True
+
     def cleanup(self):
         """Cleanup display resources on exit"""
         with self._lock:
