@@ -1,6 +1,7 @@
 """Display management singleton with GPIO/SPI lifecycle handling."""
 
 import logging
+import sys
 import threading
 import atexit
 import signal
@@ -42,10 +43,20 @@ class DisplayManager:
                 width, height = self._display.resolution
                 logging.info(f'✅ Display initialized: {width}x{height}')
 
-                # Register cleanup handlers
+                # Register cleanup handlers. Replacing SIGTERM/SIGINT's
+                # default handler means Python no longer exits on its own
+                # when they're received - so we must call sys.exit()
+                # ourselves, otherwise `systemctl stop/restart` (which sends
+                # SIGTERM) would leave the process running until systemd's
+                # SIGKILL timeout (default 90s) forcibly kills it instead.
                 atexit.register(self.cleanup)
-                signal.signal(signal.SIGTERM, lambda s, f: self.cleanup())
-                signal.signal(signal.SIGINT, lambda s, f: self.cleanup())
+
+                def _handle_signal(signum, frame):
+                    self.cleanup()
+                    sys.exit(0)
+
+                signal.signal(signal.SIGTERM, _handle_signal)
+                signal.signal(signal.SIGINT, _handle_signal)
 
                 return self._display
 
