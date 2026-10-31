@@ -1,6 +1,6 @@
-<div align="center">
+﻿<div align="center">
 
-# Inky Photo Frame
+# 🖼️ Inky Photo Frame
 
 **Turn a Raspberry Pi and an Inky Impression e-ink panel into a self-updating digital photo frame, managed entirely from your phone's browser.**
 
@@ -9,32 +9,32 @@
 [![Display 7.3"](https://img.shields.io/badge/display-Inky%20Impression%207.3%22-purple)](https://shop.pimoroni.com/products/inky-impression-7-3)
 [![Display 13.3"](https://img.shields.io/badge/display-Inky%20Impression%2013.3%22-purple)](https://shop.pimoroni.com/products/inky-impression-7-3?variant=55186435277179)
 
-[**Install**](#installing-on-a-new-raspberry-pi) &bull; [**Web App**](#web-app) &bull; [**Buttons**](#physical-button-controls) &bull; [**Files**](#file-locations) &bull; [**License**](#license)
+[**🚀 Install**](#installing-on-a-new-raspberry-pi) • [**🌐 Web App**](#web-app) • [**🎮 Buttons**](#physical-button-controls) • [**📁 Files**](#file-locations) • [**🙏 License**](#license)
 
 </div>
 
 ---
 
-## Features at a Glance
+## ✨ Features at a Glance
 
 | Feature | Description |
 |---|---|
-| **Web App** | Upload, browse, edit and manage photos from any phone or browser on your WiFi - no cables, no SSH |
-| **Color Modes** | 3 profiles: calibrated Spectra palette, warmth boost for portraits, or Pimoroni default |
-| **Smart Cropping** | Automatic fill-cropping for the display, plus a manual crop / brightness / contrast editor |
-| **Collage Mode** | Show 2-3 photos per screen in a random layout, with an optional border |
-| **Auto Rotation** | Change photos every N minutes or once a day, with history so nothing repeats too soon |
-| **Sleep Window** | Freeze the display, power down WiFi, and lower the CPU governor overnight (or any time range) to save battery |
-| **Self-Update** | Pull the latest version from GitHub and restart services, right from the browser |
-| **System Info & Logs** | Service status, disk/CPU/voltage stats, and a live log viewer - no SSH needed |
-| **Remote Power** | Restart or power off the Raspberry Pi from the web app |
-| **Physical Buttons** | 4-button navigation, color-mode cycling, and an always-on WiFi recovery button |
+| 📱 **Web App** | Upload, browse, edit and manage photos from any phone or browser on your WiFi - no cables, no SSH |
+| 🎨 **Color Modes** | 3 profiles: calibrated Spectra palette, warmth boost for portraits, or Pimoroni default |
+| ✂️ **Smart Cropping** | Automatic fill-cropping for the display, plus a manual crop / brightness / contrast editor |
+| 🖼️ **Collage Mode** | Show 2-3 photos per screen in a random layout, with an optional border |
+| 🔄 **Auto Rotation** | Change photos every N minutes or once a day, with history so nothing repeats too soon |
+| 🌙 **Sleep Window** | Freeze the display, power down WiFi, and lower the CPU governor overnight (or any time range) to save battery |
+| 🔧 **Self-Update** | Pull the latest version from GitHub and restart services, right from the browser |
+| 📊 **System Info & Logs** | Service status, disk/CPU/voltage stats, and a live log viewer - no SSH needed |
+| ⏻ **Remote Power** | Restart or power off the Raspberry Pi from the web app |
+| 🎮 **Physical Buttons** | 4-button navigation, color-mode cycling, and an always-on WiFi recovery button |
 
 ---
 
-## Installing on a new Raspberry Pi
+## 🚀 Installing on a new Raspberry Pi
 
-> **Important:** when flashing Raspberry Pi OS (e.g. with Raspberry Pi Imager), the main user account **must be named `pi`** - the installer and all paths (`/home/pi/...`) assume this username. You can also set the device's **hostname** at the same time (e.g. `inkyimpression`), which is how you'll reach the web app afterwards (see below).
+> ⚠️ **Important:** when flashing Raspberry Pi OS (e.g. with Raspberry Pi Imager), the main user account **must be named `pi`** - the installer and all paths (`/home/pi/...`) assume this username. You can also set the device's **hostname** at the same time (e.g. `inkyimpression`), which is how you'll reach the web app afterwards (see below).
 
 Flash Raspberry Pi OS, connect to WiFi and SSH, then run:
 
@@ -44,7 +44,7 @@ curl -sSL https://raw.githubusercontent.com/sorataj/EinkFrame/main/install.sh | 
 
 This installs everything from scratch: system dependencies, I2C/SPI enablement, a Python virtual environment, the frame software, the web app, and all systemd services (`inky-photo-frame`, `inky-webui`, `inky-wifi-button`) set to start automatically on boot. If any hardware permissions changed, the script will tell you a reboot is required. Re-running the script later safely pulls the latest version and reinstalls - or just use the web app's own "Update from GitHub" button.
 
-## Web App
+## 🌐 Web App
 
 Manage your photo frame from any phone, tablet, or computer on the same WiFi network - no need to connect cables, SSH in, or use file-sharing apps.
 
@@ -62,7 +62,7 @@ No port number needed - it's served on the standard web port. If your browser tr
 
 ### What you can do
 
-#### Photos tab
+#### 📷 Photos tab
 - **Upload photos** (JPG, PNG, HEIC, and more) - new photos appear on the frame within seconds, and HEIC photos from iPhones are supported automatically
 - **Browse** all photos as thumbnails
 - **Click any photo** to open a full-size preview, where you can:
@@ -73,7 +73,7 @@ No port number needed - it's served on the standard web port. If your browser tr
     - A single **Save changes** button applies the crop and brightness/contrast together, overwriting the original photo
 - **Delete** photos you no longer want
 
-#### Settings tab
+#### ⚙️ Settings tab
 - **Frame orientation** - landscape or portrait, plus a 180 degree flip option
 - **Collage mode** - show 2-3 photos per screen in a random layout
 - **Color mode** - choose between Spectra palette (accurate colors, recommended), Warmth boost (warmer tones for portraits), or Pimoroni default (official library behavior)
@@ -84,7 +84,7 @@ No port number needed - it's served on the standard web port. If your browser tr
 - **Power** - restart or power off the Raspberry Pi
 - **System info** - at-a-glance service status, disk space, OS version, frame uptime, CPU temperature, core voltage, and a "View logs" button for live troubleshooting without SSH
 
-## Physical Button Controls
+## 🎮 Physical Button Controls
 
 The Inky Impression has 4 physical buttons on the side for interactive control:
 
@@ -101,7 +101,7 @@ Features:
 - Color mode preference is saved and persists across reboots, and stays in sync with the web app's Settings tab
 - Navigate through your photo collection without using your phone
 
-## File Locations
+## 📁 File Locations
 
 - Photos: `/home/pi/Images`
 - Application: `/home/pi/inky-photo-frame`
@@ -109,7 +109,7 @@ Features:
 - Logs: `/home/pi/inky_photo_frame.log`
 - History: `/home/pi/.inky_history.json`
 
-## License
+## 🙏 License
 
 This project is licensed under the [MIT License](LICENSE).
 
