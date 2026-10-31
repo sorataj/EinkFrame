@@ -134,6 +134,23 @@ print_status "Photos folder ready: $PHOTOS_DIR"
 # ---------------------------------------------------------------------------
 # 6. systemd services
 # ---------------------------------------------------------------------------
+print_info "Installing WiFi recovery button service (Button D, always works)..."
+sudo tee /etc/systemd/system/inky-wifi-button.service > /dev/null << EOF
+[Unit]
+Description=Inky Photo Frame - WiFi recovery button (Button D)
+After=multi-user.target
+
+[Service]
+User=root
+ExecStart=$VENV_DIR/bin/python3 $INSTALL_DIR/inky-wifi-button.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+print_status "inky-wifi-button.service installed"
+
 print_info "Installing systemd service: inky-photo-frame..."
 sudo tee /etc/systemd/system/inky-photo-frame.service > /dev/null << EOF
 [Unit]
@@ -177,7 +194,8 @@ EOF
 print_status "inky-webui.service installed"
 
 sudo systemctl daemon-reload
-sudo systemctl enable inky-photo-frame.service inky-webui.service > /dev/null 2>&1
+sudo systemctl enable inky-wifi-button.service inky-photo-frame.service inky-webui.service > /dev/null 2>&1
+sudo systemctl restart inky-wifi-button.service > /dev/null 2>&1
 print_status "Services enabled to start on boot"
 
 # ---------------------------------------------------------------------------

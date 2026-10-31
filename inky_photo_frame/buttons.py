@@ -1,4 +1,11 @@
-"""GPIO button controller for photo frame navigation."""
+"""GPIO button controller for photo frame navigation.
+
+Button D (GPIO 24) is intentionally NOT handled here - it's owned
+exclusively by the standalone inky-wifi-button service, which always
+restores WiFi connectivity regardless of whether this app is running,
+crashed, or crash-looping (e.g. because no display is connected). See
+inky-wifi-button.py / inky-wifi-button.service.
+"""
 
 import logging
 
@@ -12,12 +19,13 @@ except ImportError:
 
 class ButtonController:
     """
-    Handles 4 GPIO buttons for photo frame control
+    Handles 3 GPIO buttons for photo frame control
     Dynamically assigns GPIO pins based on detected display model:
     - Button A: Next photo
     - Button B: Previous photo
     - Button C: Cycle color modes
-    - Button D: Reset to pimoroni mode
+    (Button D is handled by the separate inky-wifi-button service - always
+    restores WiFi, independent of this app's state.)
     """
     def __init__(self, photo_frame):
         """
@@ -32,7 +40,6 @@ class ButtonController:
         gpio_a = pins['button_a']
         gpio_b = pins['button_b']
         gpio_c = pins['button_c']
-        gpio_d = pins['button_d']
         display_name = photo_frame.display_config['name']
 
         # Initialize buttons with 20ms debouncing
@@ -40,15 +47,13 @@ class ButtonController:
             self.button_a = Button(gpio_a, bounce_time=0.02)
             self.button_b = Button(gpio_b, bounce_time=0.02)
             self.button_c = Button(gpio_c, bounce_time=0.02)
-            self.button_d = Button(gpio_d, bounce_time=0.02)
 
             # Attach handlers
             self.button_a.when_pressed = self._on_button_a
             self.button_b.when_pressed = self._on_button_b
             self.button_c.when_pressed = self._on_button_c
-            self.button_d.when_pressed = self._on_button_d
 
-            logging.info(f'✅ Button controller initialized for {display_name} (GPIO {gpio_a},{gpio_b},{gpio_c},{gpio_d})')
+            logging.info(f'✅ Button controller initialized for {display_name} (GPIO {gpio_a},{gpio_b},{gpio_c}; GPIO 24/Button D owned by inky-wifi-button service)')
         except Exception as e:
             logging.warning(f'⚠️ Could not initialize buttons: {e}')
 
@@ -80,20 +85,5 @@ class ButtonController:
             self.busy = True
             try:
                 self.photo_frame.cycle_color_mode()
-            finally:
-                self.busy = False
-
-    def _on_button_d(self):
-        """Button D: Reset to pimoroni mode - or, if the frame is currently
-        in sleep-window power-saving (WiFi off), wake it up early instead."""
-        if not self.busy:
-            self.busy = True
-            try:
-                if getattr(self.photo_frame, '_power_saving', False):
-                    logging.info('🔘 Button D pressed - Waking from sleep power-saving')
-                    self.photo_frame.wake_from_sleep()
-                else:
-                    logging.info('🔘 Button D pressed - Reset to pimoroni mode')
-                    self.photo_frame.reset_color_mode()
             finally:
                 self.busy = False

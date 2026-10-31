@@ -87,7 +87,10 @@ class InkyPhotoFrame:
 
         # Whether the CPU governor/WiFi radio are currently powered down for
         # battery saving during the configured sleep window (see
-        # _update_power_saving). Button D can override this early.
+        # _update_power_saving). Note: Button D no longer wakes this early -
+        # it's now a standalone always-on WiFi recovery button, independent
+        # of this app (see inky-wifi-button.service). Sleep still ends
+        # automatically when the configured sleep window closes.
         self._power_saving = False
 
         # Storage management - cleanup old photos periodically
@@ -360,9 +363,9 @@ class InkyPhotoFrame:
 
     def _update_power_saving(self):
         """Enter/leave CPU-governor + WiFi-radio power saving as the frame
-        crosses the configured sleep window boundary. Button D can wake
-        early via wake_from_sleep(); this will re-enter sleep power-saving
-        automatically next time the window starts again."""
+        crosses the configured sleep window boundary. If WiFi ever needs
+        to be restored early, use the physical Button D (handled by the
+        separate inky-wifi-button service, independent of this app)."""
         should_sleep = self._in_sleep_window(self._read_settings())
         if should_sleep and not self._power_saving:
             logging.info('🌙 Entering sleep window - powering down WiFi and CPU governor')
@@ -372,17 +375,6 @@ class InkyPhotoFrame:
             logging.info('☀️ Leaving sleep window - restoring WiFi and CPU governor')
             self._run_power_mode('wake')
             self._power_saving = False
-
-    def wake_from_sleep(self):
-        """Manually wake WiFi/CPU early during an active sleep window
-        (triggered by Button D). Sleep will resume automatically the next
-        time the sleep window starts fresh."""
-        if not self._power_saving:
-            return False
-        logging.info('🔘 Manual wake requested - restoring WiFi and CPU governor')
-        self._run_power_mode('wake')
-        self._power_saving = False
-        return True
 
     def _apply_color_mode_if_changed(self):
         """Pick up a color mode change made from the web UI (Settings tab) or
